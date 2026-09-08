@@ -6,6 +6,7 @@ import {
   TabTriggerSlotProps,
   TabListProps,
 } from 'expo-router/ui';
+import { Slot } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { Pressable, useColorScheme, View, StyleSheet } from 'react-native';
 
@@ -14,8 +15,15 @@ import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
 
 import { Colors, MaxContentWidth, Spacing } from '@/constants/theme';
+import { useAuth } from '@/contexts/auth-context';
 
 export default function AppTabs() {
+  const { isReady, user } = useAuth();
+
+  if (!isReady || !user) {
+    return <Slot />;
+  }
+
   return (
     <Tabs>
       <TabSlot style={{ height: '100%' }} />
@@ -26,6 +34,12 @@ export default function AppTabs() {
           </TabTrigger>
           <TabTrigger name="explore" href="/explore" asChild>
             <TabButton>Explore</TabButton>
+          </TabTrigger>
+          <TabTrigger name="products" href="/products" asChild>
+            <TabButton>Productos</TabButton>
+          </TabTrigger>
+          <TabTrigger name="orders" href="/orders" asChild>
+            <TabButton>Mis pedidos</TabButton>
           </TabTrigger>
         </CustomTabList>
       </TabList>
