@@ -115,7 +115,7 @@ export function SideMenu({ visible, userEmail, onClose, onSignOut }: SideMenuPro
     };
   }, [user, visible]);
 
-  function navigate(path: '/' | '/explore' | '/products' | '/orders' | '/profile') {
+  function navigate(path: '/' | '/explore' | '/products' | '/orders' | '/profile' | '/settings') {
     router.replace(path);
     onClose();
   }
@@ -231,6 +231,13 @@ export function SideMenu({ visible, userEmail, onClose, onSignOut }: SideMenuPro
                   icon="person"
                   label="Perfil"
                   onPress={() => navigate('/profile')}
+                  symbolsLoaded={symbolsLoaded}
+                />
+                <MenuItem
+                  active={pathname === '/settings'}
+                  icon="settings"
+                  label="Ajustes"
+                  onPress={() => navigate('/settings')}
                   symbolsLoaded={symbolsLoaded}
                 />
               </View>

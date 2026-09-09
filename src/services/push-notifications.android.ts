@@ -3,6 +3,7 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 import { supabase } from '@/services/supabase';
+import type { PushNotificationDebugInfo } from '@/services/push-notifications';
 
 let hasConfiguredNotifications = false;
 type NotificationsModule = typeof import('expo-notifications');
@@ -85,8 +86,61 @@ export async function unregisterPushToken(userId: string): Promise<void> {
   }
 }
 
+export async function getPushNotificationDebugInfo(userId: string): Promise<PushNotificationDebugInfo> {
+  if (isExpoGo()) {
+    return createDebugInfo('Expo Go', false, 'No compatible', null, null, 'Expo Go no permite notificaciones remotas Android. Usa un development build.');
+  }
+  if (!Device.isDevice) {
+    return createDebugInfo('Emulador', false, 'No disponible', null, null, 'Las notificaciones remotas requieren un dispositivo Android físico.');
+  }
+
+  const notifications = getNotifications();
+  if (!notifications) {
+    return createDebugInfo('Android', false, 'No disponible', null, null, 'El módulo de notificaciones no está disponible en esta compilación.');
+  }
+
+  const permission = await notifications.getPermissionsAsync();
+  const projectId = Constants.easConfig?.projectId ?? Constants.expoConfig?.extra?.eas?.projectId;
+  if (permission.status !== 'granted' || !projectId) {
+    return createDebugInfo(
+      'Development build',
+      true,
+      permission.status,
+      null,
+      null,
+      projectId ? 'Concede el permiso de notificaciones y vuelve a actualizar.' : 'No se encontró el proyecto EAS.',
+    );
+  }
+
+  try {
+    const token = (await notifications.getExpoPushTokenAsync({ projectId })).data;
+    if (!supabase) {
+      return createDebugInfo('Development build', true, permission.status, token, null, 'Supabase no está configurado en esta compilación.');
+    }
+    const { data, error } = await supabase
+      .from('device_push_tokens')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('token', token)
+      .maybeSingle();
+    if (error) {
+      throw new Error(error.message);
+    }
+    return createDebugInfo(
+      'Development build',
+      true,
+      permission.status,
+      token,
+      Boolean(data),
+      data ? null : 'El token existe en el dispositivo, pero aún no se registró en Supabase.',
+    );
+  } catch (error) {
+    return createDebugInfo('Development build', true, permission.status, null, null, error instanceof Error ? error.message : 'No se pudo consultar el token.');
+  }
+}
+
 function getNotifications(): NotificationsModule | null {
-  if (Constants.executionEnvironment === 'storeClient' || Constants.appOwnership === 'expo') {
+  if (isExpoGo()) {
     return null;
   }
   try {
@@ -94,6 +148,21 @@ function getNotifications(): NotificationsModule | null {
   } catch {
     return null;
   }
+}
+
+function isExpoGo(): boolean {
+  return Constants.executionEnvironment === 'storeClient' || Constants.appOwnership === 'expo';
+}
+
+function createDebugInfo(
+  environment: string,
+  isSupported: boolean,
+  permission: string,
+  token: string | null,
+  isRegisteredInSupabase: boolean | null,
+  message: string | null,
+): PushNotificationDebugInfo {
+  return { environment, isSupported, permission, token, isRegisteredInSupabase, message };
 }
 
 export async function notifyProductCreated(productId: string): Promise<void> {
