@@ -1,180 +1,394 @@
+import { MaterialSymbols_400Regular } from '@expo-google-fonts/material-symbols';
 import { Image } from 'expo-image';
-import { SymbolView } from 'expo-symbols';
-import { Platform, Pressable, ScrollView, StyleSheet } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFonts } from 'expo-font';
+import * as ImagePicker from 'expo-image-picker';
+import { Redirect } from 'expo-router';
+import { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  TextInput,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ExternalLink } from '@/components/external-link';
+import { SideMenu } from '@/components/side-menu';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Collapsible } from '@/components/ui/collapsible';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { useAuth } from '@/contexts/auth-context';
 import { useTheme } from '@/hooks/use-theme';
+import { getDirectoryUsers, type DirectoryUser } from '@/services/user-directory';
+import { getLocalProfile } from '@/services/profile-storage';
+import {
+  addWarehouse,
+  addWarehouseItem,
+  deleteWarehouseItem,
+  extractWarehouseItem,
+  getCachedWarehouseInventory,
+  getWarehouseInventory,
+  isWarehouseAdmin,
+  subscribeToWarehouseInventory,
+  updateWarehouseItem,
+  type Warehouse,
+  type WarehouseItem,
+  type WarehouseUnitType,
+} from '@/services/warehouse-inventory';
 
-export default function TabTwoScreen() {
-  const safeAreaInsets = useSafeAreaInsets();
-  const insets = {
-    ...safeAreaInsets,
-    bottom: safeAreaInsets.bottom + BottomTabInset + Spacing.three,
-  };
+export default function WarehouseScreen() {
+  const [symbolsLoaded] = useFonts({ MaterialSymbols: MaterialSymbols_400Regular });
+  const { isReady, user, signOut } = useAuth();
   const theme = useTheme();
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [items, setItems] = useState<WarehouseItem[]>([]);
+  const [directory, setDirectory] = useState<DirectoryUser[]>([]);
+  const [ownerAvatarUris, setOwnerAvatarUris] = useState<Record<string, string | null>>({});
+  const [isLoading, setIsLoading] = useState(true);
+  const [isMenuVisible, setIsMenuVisible] = useState(false);
+  const [isItemModalVisible, setIsItemModalVisible] = useState(false);
+  const [isWarehouseModalVisible, setIsWarehouseModalVisible] = useState(false);
+  const [isExtractModalVisible, setIsExtractModalVisible] = useState(false);
+  const [editingItem, setEditingItem] = useState<WarehouseItem | null>(null);
+  const [extractingItem, setExtractingItem] = useState<WarehouseItem | null>(null);
+  const [itemName, setItemName] = useState('');
+  const [itemQuantity, setItemQuantity] = useState('1');
+  const [itemUnitType, setItemUnitType] = useState<WarehouseUnitType>('unit');
+  const [itemWarehouseId, setItemWarehouseId] = useState('');
+  const [itemOwnerId, setItemOwnerId] = useState('');
+  const [itemImage, setItemImage] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [warehouseName, setWarehouseName] = useState('');
+  const [warehouseLocation, setWarehouseLocation] = useState('');
+  const [extractedQuantity, setExtractedQuantity] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'connecting' | 'live' | 'offline'>('connecting');
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const contentPlatformStyle = Platform.select({
-    android: {
-      paddingTop: insets.top,
-      paddingLeft: insets.left,
-      paddingRight: insets.right,
-      paddingBottom: insets.bottom,
-    },
-    web: {
-      paddingTop: Spacing.six,
-      paddingBottom: Spacing.four,
-    },
-  });
+  const canManageAll = Boolean(user && isWarehouseAdmin(user));
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+    let mounted = true;
+    let showedCache = false;
+    void getCachedWarehouseInventory().then((cached) => {
+      if (mounted && (cached.items.length || cached.warehouses.length)) {
+        showedCache = true;
+        setWarehouses(cached.warehouses);
+        setItems(cached.items);
+        setIsLoading(false);
+      }
+    });
+    void Promise.all([getWarehouseInventory(), getDirectoryUsers().catch(() => [])])
+      .then(([inventory, users]) => {
+        if (mounted) {
+          setWarehouses(inventory.warehouses);
+          setItems(inventory.items);
+          setDirectory(users);
+        }
+      })
+      .catch((loadError) => {
+        if (mounted && !showedCache) {
+          setError(loadError instanceof Error ? loadError.message : 'No se pudo cargar el almacén.');
+        }
+      })
+      .finally(() => mounted && setIsLoading(false));
+
+    const unsubscribe = subscribeToWarehouseInventory(() => {
+      void getWarehouseInventory().then((inventory) => {
+        if (mounted) {
+          setWarehouses(inventory.warehouses);
+          setItems(inventory.items);
+        }
+      }).catch(() => {});
+    }, (status) => mounted && setSyncStatus(status));
+
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
+  }, [user]);
+
+  useEffect(() => {
+    let mounted = true;
+    const ownerIds = [...new Set(items.map((item) => item.ownerId))];
+    void Promise.all(ownerIds.map(async (ownerId) => [ownerId, (await getLocalProfile(ownerId))?.avatarUri ?? null] as const))
+      .then((avatars) => {
+        if (mounted) {
+          setOwnerAvatarUris(Object.fromEntries(avatars));
+        }
+      })
+      .catch(() => {});
+    return () => { mounted = false; };
+  }, [items]);
+
+  if (!isReady) {
+    return <ThemedView style={styles.centered}><ActivityIndicator /></ThemedView>;
+  }
+  if (!user) {
+    return <Redirect href="/" />;
+  }
+  const currentUser = user;
+  const warehouseGroups = warehouses
+    .map((warehouse) => ({ warehouse, items: items.filter((item) => item.warehouseId === warehouse.id) }))
+    .filter((group) => group.items.length > 0);
+
+  function displayUserName() {
+    return String(currentUser.user_metadata.full_name ?? currentUser.user_metadata.name ?? currentUser.email?.split('@')[0] ?? 'Usuario');
+  }
+
+  function openNewItem() {
+    if (!warehouses.length) {
+      setError('Primero crea un almacén.');
+      return;
+    }
+    setEditingItem(null);
+    setItemName('');
+    setItemQuantity('1');
+    setItemUnitType('unit');
+    setItemWarehouseId(warehouses[0].id);
+    setItemOwnerId(currentUser.id);
+    setItemImage(null);
+    setError(null);
+    setIsItemModalVisible(true);
+  }
+
+  function openEditItem(item: WarehouseItem) {
+    setEditingItem(item);
+    setItemName(item.name);
+    setItemQuantity(String(item.quantity));
+    setItemUnitType(item.unitType);
+    setItemWarehouseId(item.warehouseId);
+    setItemOwnerId(item.ownerId);
+    setItemImage(null);
+    setError(null);
+    setIsItemModalVisible(true);
+  }
+
+  async function chooseImage() {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      setError('Necesitamos permiso para seleccionar la imagen.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
+    if (!result.canceled) {
+      setItemImage(result.assets[0]);
+    }
+  }
+
+  async function saveItem() {
+    const quantity = Number(itemQuantity.replace(',', '.'));
+    if (!itemName.trim() || !itemWarehouseId || !itemOwnerId || !Number.isFinite(quantity) || quantity < 0) {
+      setError('Completa el nombre, almacén, dueño y una cantidad válida.');
+      return;
+    }
+    setIsSaving(true);
+    setError(null);
+    try {
+      const saved = editingItem
+        ? await updateWarehouseItem(editingItem.id, { warehouseId: itemWarehouseId, ownerId: itemOwnerId, name: itemName, unitType: itemUnitType, quantity, image: itemImage })
+        : await addWarehouseItem({ warehouseId: itemWarehouseId, ownerId: itemOwnerId, name: itemName, unitType: itemUnitType, quantity, image: itemImage });
+      setItems((current) => editingItem ? current.map((item) => item.id === saved.id ? saved : item) : [saved, ...current]);
+      setIsItemModalVisible(false);
+      setMessage(editingItem ? 'Artículo actualizado y movimiento registrado.' : 'Artículo guardado en el almacén.');
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'No se pudo guardar el artículo.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function saveWarehouse() {
+    if (!warehouseName.trim()) {
+      setError('Indica el nombre del almacén.');
+      return;
+    }
+    setIsSaving(true);
+    setError(null);
+    try {
+      const warehouse = await addWarehouse(warehouseName, warehouseLocation);
+      setWarehouses((current) => [...current, warehouse].sort((left, right) => left.name.localeCompare(right.name)));
+      setWarehouseName('');
+      setWarehouseLocation('');
+      setIsWarehouseModalVisible(false);
+      setMessage('Almacén creado.');
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'No se pudo crear el almacén.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function saveExtraction() {
+    if (!extractingItem) return;
+    const quantity = Number(extractedQuantity.replace(',', '.'));
+    setIsSaving(true);
+    setError(null);
+    try {
+      const saved = await extractWarehouseItem(extractingItem, quantity);
+      setItems((current) => current.map((item) => item.id === saved.id ? saved : item));
+      setIsExtractModalVisible(false);
+      setMessage(saved.status === 'extracted' ? 'Artículo extraído por completo.' : 'Extracción registrada.');
+    } catch (extractError) {
+      setError(extractError instanceof Error ? extractError.message : 'No se pudo registrar la extracción.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  function confirmDelete(item: WarehouseItem) {
+    Alert.alert('Eliminar artículo', `¿Eliminar ${item.name}?`, [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Eliminar', style: 'destructive', onPress: () => void removeItem(item) },
+    ]);
+  }
+
+  async function removeItem(item: WarehouseItem) {
+    try {
+      await deleteWarehouseItem(item.id);
+      setItems((current) => current.filter((candidate) => candidate.id !== item.id));
+      setIsItemModalVisible(false);
+      setMessage('Artículo eliminado.');
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : 'No se pudo eliminar el artículo.');
+    }
+  }
 
   return (
-    <ScrollView
-      style={[styles.scrollView, { backgroundColor: theme.background }]}
-      contentInset={insets}
-      contentContainerStyle={[styles.contentContainer, contentPlatformStyle]}>
-      <ThemedView style={styles.container}>
-        <ThemedView style={styles.titleContainer}>
-          <ThemedText type="subtitle">Explore</ThemedText>
-          <ThemedText style={styles.centerText} themeColor="textSecondary">
-            This starter app includes example{'\n'}code to help you get started.
-          </ThemedText>
+    <ThemedView style={styles.container}>
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.topBar}>
+          <Pressable accessibilityLabel="Abrir menú" onPress={() => setIsMenuVisible(true)} style={[styles.menuButton, { backgroundColor: theme.backgroundElement }]}>
+            <ThemedText style={styles.menuIcon}>☰</ThemedText>
+          </Pressable>
+          <View style={styles.titleBlock}>
+            <ThemedText style={styles.title}>Almacén</ThemedText>
+            <ThemedText themeColor="textSecondary" style={styles.subtitle}>{canManageAll ? 'Inventario de todos los usuarios.' : 'Tus artículos almacenados.'}</ThemedText>
+            <View style={styles.syncIndicator}><View style={[styles.syncDot, { backgroundColor: syncStatus === 'live' ? theme.success : syncStatus === 'offline' ? theme.info : theme.primary }]} /><ThemedText themeColor="textSecondary" style={styles.syncText}>{syncStatus === 'live' ? 'Sincronizado' : syncStatus === 'offline' ? 'Sin conexión' : 'Sincronizando'}</ThemedText></View>
+          </View>
+          {canManageAll ? <Pressable accessibilityLabel="Crear almacén" onPress={() => { setError(null); setIsWarehouseModalVisible(true); }} style={[styles.iconButton, { borderColor: theme.backgroundSelected }]}><ThemedText style={styles.materialIcon}>{symbolsLoaded ? 'warehouse' : '+'}</ThemedText></Pressable> : null}
+          <Pressable accessibilityLabel="Añadir artículo" onPress={openNewItem} style={[styles.addButton, { backgroundColor: theme.primary }]}><ThemedText style={styles.addButtonText}>+</ThemedText></Pressable>
+        </View>
 
-          <ExternalLink href="https://docs.expo.dev" asChild>
-            <Pressable style={({ pressed }) => pressed && styles.pressed}>
-              <ThemedView type="backgroundElement" style={styles.linkButton}>
-                <ThemedText type="link">Expo documentation</ThemedText>
-                <SymbolView
-                  tintColor={theme.text}
-                  name={{ ios: 'arrow.up.right.square', android: 'link', web: 'link' }}
-                  size={12}
-                />
-              </ThemedView>
-            </Pressable>
-          </ExternalLink>
-        </ThemedView>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          {error ? <ThemedText style={[styles.feedback, { color: theme.info }]}>{error}</ThemedText> : null}
+          {message ? <ThemedText style={[styles.feedback, { color: theme.success }]}>{message}</ThemedText> : null}
+          {isLoading ? <View style={styles.centered}><ActivityIndicator /></View> : items.length ? <View style={styles.warehouseGroups}>{warehouseGroups.map(({ warehouse, items: warehouseItems }) => (
+            <View key={warehouse.id} style={styles.warehouseGroup}>
+              <View style={[styles.warehouseHeader, { borderBottomColor: theme.backgroundSelected }]}>
+                <ThemedText style={styles.warehouseTitle}>{warehouse.name}</ThemedText>
+                {warehouse.location ? <ThemedText themeColor="textSecondary" style={styles.warehouseLocation}>{warehouse.location}</ThemedText> : null}
+              </View>
+              <View style={styles.itemList}>{warehouseItems.map((item) => (
+                <WarehouseItemCard key={item.id} item={item} ownerAvatarUri={ownerAvatarUris[item.ownerId] ?? null} canManageAll={canManageAll} symbolsLoaded={symbolsLoaded} onEdit={() => openEditItem(item)} onExtract={() => { setExtractingItem(item); setExtractedQuantity(''); setError(null); setIsExtractModalVisible(true); }} onDelete={() => confirmDelete(item)} />
+              ))}</View>
+            </View>
+          ))}</View> : <ThemedText themeColor="textSecondary" style={styles.emptyState}>{warehouses.length ? 'No tienes artículos almacenados.' : 'Aún no hay almacenes disponibles.'}</ThemedText>}
+        </ScrollView>
+      </SafeAreaView>
 
-        <ThemedView style={styles.sectionsWrapper}>
-          <Collapsible title="File-based routing">
-            <ThemedText type="small">
-              This app has two screens: <ThemedText type="code">src/app/index.tsx</ThemedText> and{' '}
-              <ThemedText type="code">src/app/explore.tsx</ThemedText>
-            </ThemedText>
-            <ThemedText type="small">
-              The layout file in <ThemedText type="code">src/app/_layout.tsx</ThemedText> sets up
-              the tab navigator.
-            </ThemedText>
-            <ExternalLink href="https://docs.expo.dev/router/introduction">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
+      <SideMenu visible={isMenuVisible} userEmail={currentUser.email} onClose={() => setIsMenuVisible(false)} onSignOut={signOut} />
 
-          <Collapsible title="Android, iOS, and web support">
-            <ThemedView type="backgroundElement" style={styles.collapsibleContent}>
-              <ThemedText type="small">
-                You can open this project on Android, iOS, and the web. To open the web version,
-                press <ThemedText type="smallBold">w</ThemedText> in the terminal running this
-                project.
-              </ThemedText>
-              <Image
-                source={require('@/assets/images/tutorial-web.png')}
-                style={styles.imageTutorial}
-              />
-            </ThemedView>
-          </Collapsible>
+      <Modal transparent animationType="slide" visible={isItemModalVisible} onRequestClose={() => setIsItemModalVisible(false)}>
+        <View style={styles.backdrop}><ThemedView type="backgroundElement" style={styles.modal}>
+          <ThemedText style={styles.modalTitle}>{editingItem ? 'Editar artículo' : 'Nuevo artículo'}</ThemedText>
+          <ScrollView contentContainerStyle={styles.modalContent} showsVerticalScrollIndicator={false}>
+            <Pressable onPress={chooseImage} style={[styles.imagePicker, { borderColor: theme.backgroundSelected }]}>{itemImage ? <Image source={{ uri: itemImage.uri }} contentFit="cover" style={styles.imagePreview} /> : <ThemedText themeColor="textSecondary">Seleccionar imagen</ThemedText>}</Pressable>
+            <TextInput value={itemName} onChangeText={setItemName} placeholder="Nombre del artículo" placeholderTextColor={theme.textSecondary} style={[styles.input, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]} />
+            <TextInput value={itemQuantity} onChangeText={setItemQuantity} keyboardType="decimal-pad" placeholder="Cantidad" placeholderTextColor={theme.textSecondary} style={[styles.input, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]} />
+            <View style={styles.unitRow}><ThemedText themeColor="textSecondary" style={styles.fieldLabel}>Unidades</ThemedText><Switch value={itemUnitType === 'pound'} onValueChange={(value) => setItemUnitType(value ? 'pound' : 'unit')} trackColor={{ false: theme.backgroundSelected, true: theme.primary }} /><ThemedText themeColor="textSecondary" style={styles.fieldLabel}>Libras</ThemedText></View>
+            <ThemedText themeColor="textSecondary" style={styles.fieldLabel}>Almacén</ThemedText><View style={styles.optionGrid}>{warehouses.map((warehouse) => <Pressable key={warehouse.id} onPress={() => setItemWarehouseId(warehouse.id)} style={[styles.option, { borderColor: theme.primary }, itemWarehouseId === warehouse.id && { backgroundColor: theme.primary }]}><ThemedText style={[styles.optionText, itemWarehouseId === warehouse.id && styles.optionTextSelected]}>{warehouse.name}</ThemedText></Pressable>)}</View>
+            <OwnerSelect disabled={!canManageAll} onChange={setItemOwnerId} owners={directory.length ? directory : [{ id: currentUser.id, name: displayUserName() }]} theme={theme} value={itemOwnerId} />
+            {error ? <ThemedText style={[styles.modalError, { color: theme.info }]}>{error}</ThemedText> : null}
+            <Pressable disabled={isSaving} onPress={saveItem} style={[styles.saveButton, { backgroundColor: theme.primary }, isSaving && styles.disabled]}>{isSaving ? <ActivityIndicator color="#FFFFFF" /> : <ThemedText style={styles.saveButtonText}>{editingItem ? 'Guardar cambios' : 'Guardar artículo'}</ThemedText>}</Pressable>
+            {editingItem ? <Pressable disabled={isSaving} onPress={() => confirmDelete(editingItem)} style={styles.deleteButton}><ThemedText style={styles.deleteButtonText}>Eliminar artículo</ThemedText></Pressable> : null}
+            <Pressable onPress={() => setIsItemModalVisible(false)} style={styles.cancelButton}><ThemedText themeColor="info" style={styles.cancelButtonText}>Cancelar</ThemedText></Pressable>
+          </ScrollView>
+        </ThemedView></View>
+      </Modal>
 
-          <Collapsible title="Images">
-            <ThemedText type="small">
-              For static images, you can use the <ThemedText type="code">@2x</ThemedText> and{' '}
-              <ThemedText type="code">@3x</ThemedText> suffixes to provide files for different
-              screen densities.
-            </ThemedText>
-            <Image source={require('@/assets/images/react-logo.png')} style={styles.imageReact} />
-            <ExternalLink href="https://reactnative.dev/docs/images">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
+      <Modal transparent animationType="fade" visible={isWarehouseModalVisible} onRequestClose={() => setIsWarehouseModalVisible(false)}>
+        <View style={styles.backdrop}><ThemedView type="backgroundElement" style={styles.modal}>
+          <ThemedText style={styles.modalTitle}>Nuevo almacén</ThemedText>
+          <TextInput value={warehouseName} onChangeText={setWarehouseName} placeholder="Nombre" placeholderTextColor={theme.textSecondary} style={[styles.input, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]} />
+          <TextInput value={warehouseLocation} onChangeText={setWarehouseLocation} placeholder="Ubicación (opcional)" placeholderTextColor={theme.textSecondary} style={[styles.input, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]} />
+          <Pressable disabled={isSaving} onPress={saveWarehouse} style={[styles.saveButton, { backgroundColor: theme.primary }]}><ThemedText style={styles.saveButtonText}>Crear almacén</ThemedText></Pressable>
+          <Pressable onPress={() => setIsWarehouseModalVisible(false)} style={styles.cancelButton}><ThemedText themeColor="info" style={styles.cancelButtonText}>Cancelar</ThemedText></Pressable>
+        </ThemedView></View>
+      </Modal>
 
-          <Collapsible title="Light and dark mode components">
-            <ThemedText type="small">
-              This template has light and dark mode support. The{' '}
-              <ThemedText type="code">useColorScheme()</ThemedText> hook lets you inspect what the
-              user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
-            </ThemedText>
-            <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
+      <Modal transparent animationType="fade" visible={isExtractModalVisible} onRequestClose={() => setIsExtractModalVisible(false)}>
+        <View style={styles.backdrop}><ThemedView type="backgroundElement" style={styles.modal}>
+          <ThemedText style={styles.modalTitle}>Extraer {extractingItem?.name}</ThemedText>
+          <ThemedText themeColor="textSecondary" style={styles.extractCopy}>Disponible: {formatQuantity(extractingItem?.quantity ?? 0)} {formatUnit(extractingItem?.unitType ?? 'unit')}</ThemedText>
+          <TextInput value={extractedQuantity} onChangeText={setExtractedQuantity} keyboardType="decimal-pad" placeholder="Cantidad a extraer" placeholderTextColor={theme.textSecondary} style={[styles.input, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]} />
+          {error ? <ThemedText style={[styles.modalError, { color: theme.info }]}>{error}</ThemedText> : null}
+          <Pressable disabled={isSaving} onPress={saveExtraction} style={[styles.saveButton, { backgroundColor: theme.primary }]}>{isSaving ? <ActivityIndicator color="#FFFFFF" /> : <ThemedText style={styles.saveButtonText}>Registrar extracción</ThemedText>}</Pressable>
+          <Pressable onPress={() => setIsExtractModalVisible(false)} style={styles.cancelButton}><ThemedText themeColor="info" style={styles.cancelButtonText}>Cancelar</ThemedText></Pressable>
+        </ThemedView></View>
+      </Modal>
+    </ThemedView>
+  );
+}
 
-          <Collapsible title="Animations">
-            <ThemedText type="small">
-              This template includes an example of an animated component. The{' '}
-              <ThemedText type="code">src/components/ui/collapsible.tsx</ThemedText> component uses
-              the powerful <ThemedText type="code">react-native-reanimated</ThemedText> library to
-              animate opening this hint.
-            </ThemedText>
-          </Collapsible>
-        </ThemedView>
-        {Platform.OS === 'web' && <WebBadge />}
-      </ThemedView>
-    </ScrollView>
+function WarehouseItemCard({ item, ownerAvatarUri, canManageAll, symbolsLoaded, onEdit, onExtract, onDelete }: { item: WarehouseItem; ownerAvatarUri: string | null; canManageAll: boolean; symbolsLoaded: boolean; onEdit: () => void; onExtract: () => void; onDelete: () => void }) {
+  const theme = useTheme();
+  const canChange = canManageAll || item.status === 'active';
+  const ownerInitials = item.ownerName.split(/\s+/).filter(Boolean).slice(0, 2).map((name) => name[0]).join('').toUpperCase();
+  return <ThemedView type="backgroundElement" style={[styles.itemCard, item.status === 'extracted' && styles.extractedCard]}>
+    {item.imageUrl ? <Image source={{ uri: item.imageUrl }} contentFit="cover" style={styles.itemImage} /> : <View style={styles.imageFallback}><ThemedText style={styles.imageFallbackText}>{item.name[0]?.toUpperCase()}</ThemedText></View>}
+    <View style={styles.itemBody}>
+      <View><ThemedText numberOfLines={1} style={styles.itemName}>{item.name}</ThemedText><ThemedText themeColor="textSecondary" style={styles.itemMeta}>{item.warehouseName} · {formatQuantity(item.quantity)} {formatUnit(item.unitType)}</ThemedText>{canManageAll ? <ThemedText themeColor="textSecondary" style={styles.itemMeta}>Dueño: {item.ownerName}</ThemedText> : null}<View style={styles.dateRow}><ThemedText themeColor="textSecondary" style={styles.itemDate}>Entrada: {formatDate(item.createdAt) || '—'}</ThemedText>{item.extractedAt ? <ThemedText themeColor="textSecondary" style={styles.itemDate}>Extraído: {formatDate(item.extractedAt)}</ThemedText> : null}</View></View>
+      <View style={styles.cardFooter}><ThemedText style={[styles.status, item.status === 'extracted' && styles.extractedStatus]}>{item.status === 'extracted' ? `Extraído · ${formatDate(item.extractedAt)}` : 'Disponible'}</ThemedText><View style={styles.actions}>{canChange ? <Pressable accessibilityLabel="Extraer" onPress={onExtract} style={styles.actionButton}><ThemedText style={styles.materialIcon}>{symbolsLoaded ? 'remove_circle_outline' : '−'}</ThemedText></Pressable> : null}<Pressable accessibilityLabel="Editar" onPress={onEdit} style={styles.actionButton}><ThemedText style={styles.materialIcon}>{symbolsLoaded ? 'edit' : '✎'}</ThemedText></Pressable>{canManageAll ? <Pressable accessibilityLabel="Eliminar" onPress={onDelete} style={styles.actionButton}><ThemedText style={styles.materialIcon}>{symbolsLoaded ? 'delete' : '×'}</ThemedText></Pressable> : null}</View></View>
+    </View>
+    <View style={[styles.ownerAvatar, { borderColor: theme.secondary }]}>
+      {ownerAvatarUri ? <Image source={{ uri: ownerAvatarUri }} contentFit="cover" style={styles.ownerAvatarImage} /> : <ThemedText style={styles.ownerAvatarInitial}>{ownerInitials}</ThemedText>}
+    </View>
+  </ThemedView>;
+}
+
+function formatUnit(unitType: WarehouseUnitType) { return unitType === 'pound' ? 'lb' : 'ud'; }
+function formatQuantity(quantity: number) { return Number.isInteger(quantity) ? String(quantity) : quantity.toFixed(2).replace(/\.00$/, ''); }
+function formatDate(date: string | null) { return date ? new Intl.DateTimeFormat('es', { day: '2-digit', month: 'short' }).format(new Date(date)) : ''; }
+
+function OwnerSelect({ disabled, onChange, owners, theme, value }: {
+  disabled: boolean;
+  onChange: (ownerId: string) => void;
+  owners: DirectoryUser[];
+  theme: ReturnType<typeof useTheme>;
+  value: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const selectedOwner = owners.find((owner) => owner.id === value);
+
+  return (
+    <View style={styles.ownerField}>
+      <ThemedText themeColor="textSecondary" style={styles.fieldLabel}>Dueño</ThemedText>
+      <Pressable
+        accessibilityLabel="Seleccionar dueño del artículo"
+        disabled={disabled}
+        onPress={() => setIsOpen((open) => !open)}
+        style={[styles.ownerSelect, { backgroundColor: theme.background, borderColor: theme.backgroundSelected }, disabled && styles.disabled]}>
+        <ThemedText numberOfLines={1} style={[styles.ownerValue, { color: selectedOwner ? theme.text : theme.textSecondary }]}>{selectedOwner?.name ?? 'Selecciona un dueño'}</ThemedText>
+        <ThemedText themeColor="textSecondary" style={styles.ownerChevron}>{isOpen ? '⌃' : '⌄'}</ThemedText>
+      </Pressable>
+      {isOpen && !disabled ? <View style={[styles.ownerOptions, { backgroundColor: theme.background, borderColor: theme.backgroundSelected }]}>{owners.map((owner) => <Pressable key={owner.id} onPress={() => { onChange(owner.id); setIsOpen(false); }} style={styles.ownerOption}><ThemedText>{owner.name}</ThemedText></Pressable>)}</View> : null}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollView: {
-    flex: 1,
-  },
-  contentContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-  },
-  container: {
-    maxWidth: MaxContentWidth,
-    flexGrow: 1,
-  },
-  titleContainer: {
-    gap: Spacing.three,
-    alignItems: 'center',
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.six,
-  },
-  centerText: {
-    textAlign: 'center',
-  },
-  pressed: {
-    opacity: 0.7,
-  },
-  linkButton: {
-    flexDirection: 'row',
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.two,
-    borderRadius: Spacing.five,
-    justifyContent: 'center',
-    gap: Spacing.one,
-    alignItems: 'center',
-  },
-  sectionsWrapper: {
-    gap: Spacing.five,
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.three,
-  },
-  collapsibleContent: {
-    alignItems: 'center',
-  },
-  imageTutorial: {
-    width: '100%',
-    aspectRatio: 296 / 171,
-    borderRadius: Spacing.three,
-    marginTop: Spacing.two,
-  },
-  imageReact: {
-    width: 100,
-    height: 100,
-    alignSelf: 'center',
-  },
+  container: { backgroundColor: '#FAF9F6', flex: 1 }, safeArea: { flex: 1 }, centered: { alignItems: 'center', flex: 1, justifyContent: 'center' },
+  topBar: { alignItems: 'center', flexDirection: 'row', gap: Spacing.two, paddingHorizontal: Spacing.four, paddingVertical: Spacing.three }, menuButton: { alignItems: 'center', borderRadius: Spacing.two, height: 44, justifyContent: 'center', width: 44 }, menuIcon: { fontSize: 24 }, titleBlock: { flex: 1 }, title: { fontSize: 22, fontWeight: '800' }, subtitle: { fontSize: 13, marginTop: 2 }, syncIndicator: { alignItems: 'center', flexDirection: 'row', gap: 5, marginTop: 3 }, syncDot: { borderRadius: 4, height: 7, width: 7 }, syncText: { fontSize: 10, fontWeight: '600' },
+  iconButton: { alignItems: 'center', borderRadius: 18, borderWidth: 1, height: 36, justifyContent: 'center', width: 36 }, addButton: { alignItems: 'center', borderRadius: 18, height: 36, justifyContent: 'center', width: 36 }, addButtonText: { color: '#FFFFFF', fontSize: 24, lineHeight: 26 }, materialIcon: { fontFamily: 'MaterialSymbols', fontSize: 21, lineHeight: 24, textAlign: 'center' },
+  content: { alignSelf: 'center', flexGrow: 1, maxWidth: MaxContentWidth, padding: Spacing.three, paddingBottom: Spacing.four, width: '100%' }, warehouseGroups: { gap: Spacing.three }, warehouseGroup: { gap: Spacing.two }, warehouseHeader: { borderBottomWidth: StyleSheet.hairlineWidth, paddingBottom: Spacing.one }, warehouseTitle: { fontSize: 17, fontWeight: '800' }, warehouseLocation: { fontSize: 12, marginTop: 2 }, itemList: { gap: Spacing.two }, emptyState: { paddingVertical: Spacing.four, textAlign: 'center' }, feedback: { marginBottom: Spacing.two, textAlign: 'center' },
+  itemCard: { alignItems: 'stretch', backgroundColor: '#FFFFFF', borderColor: '#EAE6DF', borderRadius: Spacing.three, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', minHeight: 104, padding: Spacing.two, position: 'relative' }, extractedCard: { opacity: 0.62 }, itemImage: { alignSelf: 'stretch', borderRadius: Spacing.two, width: 88 }, imageFallback: { alignItems: 'center', alignSelf: 'stretch', backgroundColor: '#EEF1F3', borderRadius: Spacing.two, justifyContent: 'center', width: 88 }, imageFallbackText: { color: '#4D96FF', fontSize: 26, fontWeight: '800' }, itemBody: { alignSelf: 'stretch', flex: 1, justifyContent: 'space-between', paddingLeft: Spacing.two, paddingRight: Spacing.five }, itemName: { fontSize: 16, fontWeight: '800' }, itemMeta: { fontSize: 12, marginTop: 2 }, dateRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.one, marginTop: 3 }, itemDate: { fontSize: 10 }, cardFooter: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' }, status: { color: '#258D42', fontSize: 11, fontWeight: '800' }, extractedStatus: { color: '#8A5D00' }, actions: { flexDirection: 'row', gap: Spacing.one }, actionButton: { alignItems: 'center', height: 30, justifyContent: 'center', width: 30 }, ownerAvatar: { alignItems: 'center', backgroundColor: '#FFF1F1', borderRadius: 22, borderWidth: 2, height: 44, justifyContent: 'center', overflow: 'hidden', position: 'absolute', right: Spacing.two, top: Spacing.two, width: 44 }, ownerAvatarImage: { height: '100%', width: '100%' }, ownerAvatarInitial: { color: '#4D96FF', fontSize: 14, fontWeight: '800' },
+  backdrop: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.42)', flex: 1, justifyContent: 'center', padding: Spacing.four }, modal: { borderRadius: Spacing.four, gap: Spacing.three, maxHeight: '88%', maxWidth: 440, padding: Spacing.four, width: '100%' }, modalContent: { gap: Spacing.two }, modalTitle: { fontSize: 21, fontWeight: '800' }, imagePicker: { alignItems: 'center', borderRadius: Spacing.two, borderStyle: 'dashed', borderWidth: 1, height: 100, justifyContent: 'center', overflow: 'hidden' }, imagePreview: { height: '100%', width: '100%' }, input: { borderRadius: Spacing.two, borderWidth: 1, fontSize: 16, minHeight: 48, paddingHorizontal: Spacing.two }, unitRow: { alignItems: 'center', flexDirection: 'row', gap: Spacing.one }, fieldLabel: { fontSize: 13, fontWeight: '700' }, optionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.one }, option: { borderRadius: 14, borderWidth: 1, paddingHorizontal: Spacing.two, paddingVertical: Spacing.one }, optionText: { fontSize: 12, fontWeight: '700' }, optionTextSelected: { color: '#FFFFFF' }, ownerField: { gap: Spacing.one }, ownerSelect: { alignItems: 'center', borderRadius: Spacing.two, borderWidth: 1, flexDirection: 'row', justifyContent: 'space-between', minHeight: 48, paddingHorizontal: Spacing.two }, ownerValue: { flex: 1, fontSize: 15 }, ownerChevron: { fontSize: 18 }, ownerOptions: { borderRadius: Spacing.two, borderWidth: 1, overflow: 'hidden' }, ownerOption: { minHeight: 44, justifyContent: 'center', paddingHorizontal: Spacing.two }, modalError: { fontSize: 13, textAlign: 'center' }, saveButton: { alignItems: 'center', borderRadius: Spacing.two, height: 48, justifyContent: 'center' }, saveButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' }, cancelButton: { alignItems: 'center', paddingVertical: Spacing.one }, cancelButtonText: { fontSize: 15, fontWeight: '800' }, deleteButton: { alignItems: 'center', paddingVertical: Spacing.one }, deleteButtonText: { color: '#C2410C', fontSize: 14, fontWeight: '800' }, disabled: { opacity: 0.45 }, extractCopy: { fontSize: 14 },
 });

@@ -8,21 +8,25 @@ export type LocalProfile = {
   phone: string;
   birthDate: string;
   address: string;
+  gender: ProfileGender;
   avatarUri: string | null;
 };
+
+export type ProfileGender = '' | 'male' | 'female';
 
 type LocalProfileRow = {
   full_name: string;
   phone: string;
   birth_date: string;
   address: string;
+  gender: ProfileGender;
   avatar_uri: string | null;
 };
 
 export async function getLocalProfile(userId: string): Promise<LocalProfile | null> {
   const database = await getDatabase();
   const profile = await database.getFirstAsync<LocalProfileRow>(
-    `SELECT full_name, phone, birth_date, address, avatar_uri
+    `SELECT full_name, phone, birth_date, address, gender, avatar_uri
      FROM local_profile_details
      WHERE user_id = ?`,
     userId
@@ -37,6 +41,7 @@ export async function getLocalProfile(userId: string): Promise<LocalProfile | nu
     phone: profile.phone,
     birthDate: profile.birth_date,
     address: profile.address,
+    gender: profile.gender,
     avatarUri: profile.avatar_uri,
   };
 }
@@ -45,13 +50,14 @@ export async function saveLocalProfile(userId: string, profile: LocalProfile): P
   const database = await getDatabase();
   await database.runAsync(
     `INSERT INTO local_profile_details (
-      user_id, full_name, phone, birth_date, address, avatar_uri, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      user_id, full_name, phone, birth_date, address, gender, avatar_uri, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(user_id) DO UPDATE SET
       full_name = excluded.full_name,
       phone = excluded.phone,
       birth_date = excluded.birth_date,
       address = excluded.address,
+      gender = excluded.gender,
       avatar_uri = excluded.avatar_uri,
       updated_at = excluded.updated_at`,
     userId,
@@ -59,6 +65,7 @@ export async function saveLocalProfile(userId: string, profile: LocalProfile): P
     profile.phone,
     profile.birthDate,
     profile.address,
+    profile.gender,
     profile.avatarUri,
     new Date().toISOString()
   );

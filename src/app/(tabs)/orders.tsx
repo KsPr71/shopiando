@@ -1,4 +1,6 @@
 import { Redirect } from 'expo-router';
+import { MaterialSymbols_400Regular } from '@expo-google-fonts/material-symbols';
+import { useFonts } from 'expo-font';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -15,6 +17,7 @@ import { subscribeToPurchaseSummaryChanges } from '@/services/purchase-summary';
 import { getDirectoryUsers } from '@/services/user-directory';
 
 export default function OrdersScreen() {
+  const [symbolsLoaded] = useFonts({ MaterialSymbols: MaterialSymbols_400Regular });
   const { isReady, user, signOut } = useAuth();
   const theme = useTheme();
   const [isMenuVisible, setIsMenuVisible] = useState(false);
@@ -22,12 +25,31 @@ export default function OrdersScreen() {
   const [historyType, setHistoryType] = useState<'requested' | 'assigned'>('requested');
   const [expandedOrders, setExpandedOrders] = useState<Record<string, boolean>>({});
   const [isLoading, setIsLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'synced' | 'pending'>('pending');
   const hasLoadedHistory = useRef(false);
+
+  async function synchronizeOrders(): Promise<void> {
+    if (!user) {
+      return;
+    }
+    setIsSyncing(true);
+    setSyncStatus('pending');
+    try {
+      await syncPurchaseOrdersFromSupabase(user.id);
+      setSyncStatus('synced');
+    } catch {
+      setSyncStatus('pending');
+    } finally {
+      setIsSyncing(false);
+    }
+  }
 
   useEffect(() => {
     if (!user) {
       setOrders([]);
       setIsLoading(false);
+      setSyncStatus('pending');
       hasLoadedHistory.current = false;
       return;
     }
@@ -35,9 +57,9 @@ export default function OrdersScreen() {
     if (!hasLoadedHistory.current) {
       setIsLoading(true);
     }
-    const refresh = () => {
+    const refresh = async () => {
       const loadOrders = historyType === 'requested' ? getPurchaseOrderHistory : getAssignedPurchaseOrderHistory;
-      void loadOrders(user.id).then((nextOrders) => {
+      return loadOrders(user.id).then((nextOrders) => {
         if (isMounted) {
           setOrders(nextOrders);
           setIsLoading(false);
@@ -50,10 +72,13 @@ export default function OrdersScreen() {
         }
       });
     };
-    refresh();
-    void getDirectoryUsers().then(refresh).catch(() => {});
-    void syncPurchaseOrdersFromSupabase(user.id).then(refresh).catch(() => {});
-    const unsubscribe = subscribeToPurchaseSummaryChanges(refresh);
+    void (async () => {
+      await refresh();
+      await getDirectoryUsers().catch(() => {});
+      await synchronizeOrders();
+      await refresh();
+    })();
+    const unsubscribe = subscribeToPurchaseSummaryChanges(() => { void refresh(); });
     return () => {
       isMounted = false;
       unsubscribe();
@@ -86,7 +111,14 @@ export default function OrdersScreen() {
           <View>
             <ThemedText style={styles.title}>Mis pedidos</ThemedText>
             <ThemedText themeColor="textSecondary" style={styles.subtitle}>{historyType === 'requested' ? 'Historial de solicitudes realizadas' : 'Historial de compras asignadas'}</ThemedText>
+            <View style={styles.syncStatus}>
+              <View style={[styles.syncDot, { backgroundColor: syncStatus === 'synced' ? theme.success : theme.info }]} />
+              <ThemedText themeColor="textSecondary" style={styles.syncText}>{isSyncing ? 'Sincronizando con Supabase…' : syncStatus === 'synced' ? 'Sincronizado con Supabase' : 'Sin sincronizar con Supabase'}</ThemedText>
+            </View>
           </View>
+          <Pressable accessibilityLabel="Sincronizar pedidos" disabled={isSyncing} onPress={() => void synchronizeOrders()} style={[styles.syncButton, { borderColor: theme.backgroundSelected }, isSyncing && styles.disabled]}>
+            <ThemedText style={styles.syncIcon}>{symbolsLoaded ? 'sync' : '↻'}</ThemedText>
+          </Pressable>
         </View>
 
         <View style={styles.toggleContainer}>
@@ -175,6 +207,11 @@ const styles = StyleSheet.create({
   menuIcon: { fontSize: 23, lineHeight: 26 },
   title: { fontSize: 24, fontWeight: '800' },
   subtitle: { fontSize: 12, marginTop: 2 },
+  syncStatus: { alignItems: 'center', flexDirection: 'row', gap: 5, marginTop: 4 },
+  syncDot: { borderRadius: 4, height: 7, width: 7 },
+  syncText: { fontSize: 10, fontWeight: '600' },
+  syncButton: { alignItems: 'center', borderRadius: 18, borderWidth: 1, height: 36, justifyContent: 'center', marginLeft: 'auto', width: 36 },
+  syncIcon: { fontFamily: 'MaterialSymbols', fontSize: 21, lineHeight: 24 },
   toggleContainer: { paddingHorizontal: Spacing.three, paddingBottom: Spacing.two },
   content: { alignSelf: 'center', flexGrow: 1, gap: Spacing.three, maxWidth: MaxContentWidth, padding: Spacing.three, paddingTop: Spacing.one, width: '100%' },
   historyToggle: { alignSelf: 'flex-start', borderRadius: Spacing.two, flexDirection: 'row', overflow: 'hidden', padding: 2 },
@@ -205,4 +242,5 @@ const styles = StyleSheet.create({
   totalsRow: { alignItems: 'center', borderTopWidth: StyleSheet.hairlineWidth, flexDirection: 'row', justifyContent: 'space-between', marginTop: Spacing.one, paddingTop: Spacing.two },
   spentLabel: { fontSize: 12 },
   spentValue: { fontSize: 14, fontWeight: '800' },
+  disabled: { opacity: 0.45 },
 });

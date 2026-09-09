@@ -17,7 +17,7 @@ import { useAuth } from "@/contexts/auth-context";
 
 const tabIcons: Record<string, string> = {
   index: "home",
-  explore: "explore",
+  explore: "warehouse",
   products: "shopping_cart",
   orders: "receipt_long",
 };
@@ -79,7 +79,7 @@ export default function AppTabs() {
       })}
     >
       <Tabs.Screen name="index" options={{ title: "Home" }} />
-      <Tabs.Screen name="explore" options={{ title: "Explorar" }} />
+      <Tabs.Screen name="explore" options={{ title: "Almacén" }} />
       <Tabs.Screen name="products" options={{ title: "Productos" }} />
       <Tabs.Screen name="orders" options={{ title: "Mis pedidos" }} />
     </Tabs>

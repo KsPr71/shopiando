@@ -148,24 +148,37 @@ export async function syncPurchaseOrdersFromSupabase(userId: string): Promise<vo
     throw new Error(ordersError.message);
   }
   const orders = (remoteOrders ?? []) as RemoteOrder[];
-  if (!orders.length) {
-    return;
-  }
-  const { data: remoteItems, error: itemsError } = await supabase
-    .from('purchase_order_items')
-    .select('id, order_id, product_name, unit, quantity, estimated_unit_price_cents, actual_unit_price_cents, status, purchased_at, created_at, updated_at')
-    .in('order_id', orders.map((order) => order.id));
-  if (itemsError) {
-    throw new Error(itemsError.message);
+  let remoteItems: RemoteItem[] = [];
+  if (orders.length) {
+    const { data, error: itemsError } = await supabase
+      .from('purchase_order_items')
+      .select('id, order_id, product_name, unit, quantity, estimated_unit_price_cents, actual_unit_price_cents, status, purchased_at, created_at, updated_at')
+      .in('order_id', orders.map((order) => order.id));
+    if (itemsError) {
+      throw new Error(itemsError.message);
+    }
+    remoteItems = (data ?? []) as RemoteItem[];
   }
 
   const database = await getDatabase();
   const now = new Date().toISOString();
   const itemsByOrder = new Map<string, RemoteItem[]>();
-  for (const item of (remoteItems ?? []) as RemoteItem[]) {
+  for (const item of remoteItems) {
     itemsByOrder.set(item.order_id, [...(itemsByOrder.get(item.order_id) ?? []), item]);
   }
   await database.withTransactionAsync(async () => {
+    const localOrders = await database.getAllAsync<{ id: string }>(
+      'SELECT id FROM purchase_requests WHERE requester_id = ? OR assignee_id = ?',
+      userId,
+      userId,
+    );
+    const remoteOrderIds = new Set(orders.map((order) => order.id));
+    for (const localOrder of localOrders) {
+      if (!remoteOrderIds.has(localOrder.id)) {
+        await database.runAsync('DELETE FROM purchase_request_items WHERE request_id = ?', localOrder.id);
+        await database.runAsync('DELETE FROM purchase_requests WHERE id = ?', localOrder.id);
+      }
+    }
     for (const order of orders) {
       const familyId = `family-${order.requester_id}`;
       await database.runAsync(

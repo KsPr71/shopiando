@@ -1,5 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
-import { Redirect } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -25,11 +25,13 @@ import {
   getLocalProfile,
   persistAvatar,
   saveLocalProfile,
+  type ProfileGender,
   type LocalProfile,
 } from '@/services/profile-storage';
 
 export default function ProfileScreen() {
   const { isReady, user, signOut } = useAuth();
+  const router = useRouter();
   const theme = useTheme();
   const [isMenuVisible, setIsMenuVisible] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -37,6 +39,7 @@ export default function ProfileScreen() {
   const [phone, setPhone] = useState('');
   const [birthDate, setBirthDate] = useState('');
   const [address, setAddress] = useState('');
+  const [gender, setGender] = useState<ProfileGender>('');
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [selectedAvatar, setSelectedAvatar] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [savedProfile, setSavedProfile] = useState<LocalProfile | null>(null);
@@ -88,6 +91,7 @@ export default function ProfileScreen() {
       setPhone(profile.phone);
       setBirthDate(profile.birthDate);
       setAddress(profile.address);
+      setGender(profile.gender);
       setAvatarUri(profile.avatarUri);
     }
   }, [isAndroid, user]);
@@ -158,6 +162,7 @@ export default function ProfileScreen() {
         phone: phone.trim(),
         birthDate: birthDate.trim(),
         address: address.trim(),
+        gender,
         avatarUri: nextAvatarUri,
       };
 
@@ -179,6 +184,7 @@ export default function ProfileScreen() {
       setPhone(profile.phone);
       setBirthDate(profile.birthDate);
       setAddress(profile.address);
+      setGender(profile.gender);
       setAvatarUri(profile.avatarUri);
     }
   }
@@ -189,6 +195,7 @@ export default function ProfileScreen() {
       setPhone(savedProfile.phone);
       setBirthDate(savedProfile.birthDate);
       setAddress(savedProfile.address);
+      setGender(savedProfile.gender);
       setAvatarUri(savedProfile.avatarUri);
     }
     setSelectedAvatar(null);
@@ -215,7 +222,13 @@ export default function ProfileScreen() {
                 <ThemedText style={styles.menuIcon}>≡</ThemedText>
               </Pressable>
               <ThemedText style={styles.topBarTitle}>Perfil</ThemedText>
-              <View style={styles.topBarSpacer} />
+              <Pressable
+                accessibilityLabel="Cerrar perfil"
+                accessibilityRole="button"
+                onPress={() => router.canGoBack() ? router.back() : router.replace('/')}
+                style={[styles.closeButton, { backgroundColor: theme.backgroundElement }]}>
+                <ThemedText style={styles.closeIcon}>×</ThemedText>
+              </Pressable>
             </View>
 
             <View style={[styles.hero, { backgroundColor: theme.primary }]}>
@@ -269,6 +282,7 @@ export default function ProfileScreen() {
                   <ProfileInput label="Nombre completo" onChangeText={setFullName} placeholder="Tu nombre" theme={theme} value={fullName} />
                   <ProfileInput label="Teléfono" keyboardType="phone-pad" onChangeText={setPhone} placeholder="Tu teléfono" theme={theme} value={phone} />
                   <DateInput label="Fecha de nacimiento" onChange={setBirthDate} theme={theme} value={birthDate} />
+                  <GenderSelect onChange={setGender} theme={theme} value={gender} />
                   <ProfileInput label="Dirección personal" multiline onChangeText={setAddress} placeholder="Tu dirección" theme={theme} value={address} />
                   <ProfileInput editable={false} label="Correo electrónico" theme={theme} value={profileUser.email ?? ''} />
                 </View>
@@ -277,6 +291,7 @@ export default function ProfileScreen() {
                   <ProfileInfoRow icon="○" label="Nombre completo" value={displayName} />
                   <ProfileInfoRow icon="⌁" label="Teléfono" value={phone || 'No registrado'} />
                   <ProfileInfoRow icon="□" label="Fecha de nacimiento" value={birthDate || 'No registrada'} />
+                  <ProfileInfoRow icon="◐" label="Género" value={formatGender(gender)} />
                   <ProfileInfoRow icon="⌂" label="Dirección personal" value={address || 'No registrada'} />
                   <ProfileInfoRow icon="✉" label="Correo electrónico" value={profileUser.email ?? 'No registrado'} />
                 </View>
@@ -309,8 +324,17 @@ function getProfileDefaults(user: NonNullable<ReturnType<typeof useAuth>['user']
     phone: String(user.user_metadata.phone ?? user.phone ?? ''),
     birthDate: String(user.user_metadata.birth_date ?? ''),
     address: String(user.user_metadata.address ?? ''),
+    gender: toProfileGender(user.user_metadata.gender),
     avatarUri: null,
   };
+}
+
+function toProfileGender(value: unknown): ProfileGender {
+  return value === 'male' || value === 'Masculino' ? 'male' : value === 'female' || value === 'Femenino' ? 'female' : '';
+}
+
+function formatGender(gender: ProfileGender): string {
+  return gender === 'male' ? 'Masculino' : gender === 'female' ? 'Femenino' : 'No registrado';
 }
 
 function ProfileInfoRow({ icon, label, value }: { icon: string; label: string; value: string }) {
@@ -355,6 +379,40 @@ function ProfileInput({ label, theme, editable = true, multiline = false, ...inp
   );
 }
 
+function GenderSelect({ value, onChange, theme }: {
+  value: ProfileGender;
+  onChange: (value: ProfileGender) => void;
+  theme: ReturnType<typeof useTheme>;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const label = formatGender(value);
+
+  return (
+    <View style={styles.fieldGroup}>
+      <ThemedText style={styles.fieldLabel} themeColor="textSecondary">Género</ThemedText>
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => setIsOpen((open) => !open)}
+        style={[styles.genderSelect, { backgroundColor: theme.background, borderColor: theme.backgroundSelected }]}>
+        <ThemedText style={{ color: value ? theme.text : theme.textSecondary }}>
+          {label === 'No registrado' ? 'Selecciona tu género' : label}
+        </ThemedText>
+        <ThemedText themeColor="textSecondary" style={styles.genderChevron}>{isOpen ? '⌃' : '⌄'}</ThemedText>
+      </Pressable>
+      {isOpen ? (
+        <View style={[styles.genderOptions, { backgroundColor: theme.background, borderColor: theme.backgroundSelected }]}>
+          <Pressable onPress={() => { onChange('male'); setIsOpen(false); }} style={styles.genderOption}>
+            <ThemedText>Masculino</ThemedText>
+          </Pressable>
+          <Pressable onPress={() => { onChange('female'); setIsOpen(false); }} style={styles.genderOption}>
+            <ThemedText>Femenino</ThemedText>
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1 },
   safeArea: { flex: 1 },
@@ -365,7 +423,8 @@ const styles = StyleSheet.create({
   menuButton: { alignItems: 'center', borderRadius: Spacing.two, height: 44, justifyContent: 'center', width: 44 },
   menuIcon: { fontSize: 26, lineHeight: 28 },
   topBarTitle: { fontSize: 18, fontWeight: '800' },
-  topBarSpacer: { width: 44 },
+  closeButton: { alignItems: 'center', borderRadius: Spacing.two, height: 36, justifyContent: 'center', width: 36 },
+  closeIcon: { fontSize: 24, lineHeight: 26 },
   hero: { alignItems: 'center', borderBottomLeftRadius: 0, borderBottomRightRadius: 0, paddingBottom: Spacing.six, paddingHorizontal: Spacing.four, paddingTop: Spacing.three, width: '100%' },
   avatarContainer: { height: 124, position: 'relative', width: 124 },
   avatar: { borderRadius: 58, borderWidth: 4, height: 116, overflow: 'hidden', width: 116 },
@@ -392,6 +451,10 @@ const styles = StyleSheet.create({
   fieldGroup: { gap: Spacing.one },
   fieldLabel: { fontSize: 13, fontWeight: '700' },
   input: { borderRadius: Spacing.two, borderWidth: 1, fontSize: 16, minHeight: 52, paddingHorizontal: Spacing.three },
+  genderSelect: { alignItems: 'center', borderRadius: Spacing.two, borderWidth: 1, flexDirection: 'row', justifyContent: 'space-between', minHeight: 52, paddingHorizontal: Spacing.three },
+  genderChevron: { fontSize: 18 },
+  genderOptions: { borderRadius: Spacing.two, borderWidth: 1, overflow: 'hidden' },
+  genderOption: { minHeight: 44, justifyContent: 'center', paddingHorizontal: Spacing.three },
   multilineInput: { minHeight: 88, paddingTop: Spacing.three, textAlignVertical: 'top' },
   readOnlyInput: { opacity: 0.64 },
   feedback: { fontSize: 13, lineHeight: 19 },

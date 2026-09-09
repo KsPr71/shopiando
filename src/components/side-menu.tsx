@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { MaterialSymbols_400Regular } from '@expo-google-fonts/material-symbols';
+import { useFonts } from 'expo-font';
 import {
   Animated,
   Easing,
@@ -19,6 +21,7 @@ import { Spacing } from '@/constants/theme';
 import { useAuth } from '@/contexts/auth-context';
 import { useTheme } from '@/hooks/use-theme';
 import { getLocalProfile, type LocalProfile } from '@/services/profile-storage';
+import { getDirectoryUsers } from '@/services/user-directory';
 
 type SideMenuProps = {
   visible: boolean;
@@ -37,7 +40,9 @@ export function SideMenu({ visible, userEmail, onClose, onSignOut }: SideMenuPro
   const translateX = useRef(new Animated.Value(-320)).current;
   const [isMounted, setIsMounted] = useState(visible);
   const [localProfile, setLocalProfile] = useState<LocalProfile | null>(null);
+  const [directoryName, setDirectoryName] = useState<string | null>(null);
   const [failedAvatarUri, setFailedAvatarUri] = useState<string | null>(null);
+  const [symbolsLoaded] = useFonts({ MaterialSymbols: MaterialSymbols_400Regular });
   const closeGesture = Gesture.Pan()
     .activeOffsetX([-10, 10])
     .failOffsetY([-24, 24])
@@ -83,6 +88,8 @@ export function SideMenu({ visible, userEmail, onClose, onSignOut }: SideMenuPro
     }
 
     let isMounted = true;
+    setLocalProfile(null);
+    setDirectoryName(null);
     getLocalProfile(user.id)
       .then((profile) => {
         if (isMounted) {
@@ -95,6 +102,13 @@ export function SideMenu({ visible, userEmail, onClose, onSignOut }: SideMenuPro
           setLocalProfile(null);
         }
       });
+    getDirectoryUsers()
+      .then((profiles) => {
+        if (isMounted) {
+          setDirectoryName(profiles.find((profile) => profile.id === user.id)?.name ?? null);
+        }
+      })
+      .catch(() => {});
 
     return () => {
       isMounted = false;
@@ -115,7 +129,8 @@ export function SideMenu({ visible, userEmail, onClose, onSignOut }: SideMenuPro
     return null;
   }
 
-  const displayName = localProfile?.fullName.trim()
+  const displayName = directoryName?.trim()
+    || localProfile?.fullName.trim()
     || String(user?.user_metadata.full_name ?? user?.user_metadata.name ?? '')
     || user?.email?.split('@')[0]
     || 'Usuario';
@@ -171,6 +186,13 @@ export function SideMenu({ visible, userEmail, onClose, onSignOut }: SideMenuPro
                     <ThemedText numberOfLines={1} style={styles.heroName}>{displayName}</ThemedText>
                     <ThemedText numberOfLines={1} style={styles.heroEmail}>{user?.email ?? userEmail}</ThemedText>
                   </View>
+                  <Pressable
+                    accessibilityLabel="Cerrar sesión"
+                    accessibilityRole="button"
+                    onPress={handleSignOut}
+                    style={styles.signOutIconButton}>
+                    <ThemedText style={styles.signOutIcon}>{symbolsLoaded ? 'logout' : '↪'}</ThemedText>
+                  </Pressable>
                 </View>
               </View>
 
@@ -182,7 +204,7 @@ export function SideMenu({ visible, userEmail, onClose, onSignOut }: SideMenuPro
                 />
                 <MenuItem
                   active={pathname === '/explore'}
-                  label="Explorar"
+                  label="Almacén"
                   onPress={() => navigate('/explore')}
                 />
                 <MenuItem
@@ -202,19 +224,6 @@ export function SideMenu({ visible, userEmail, onClose, onSignOut }: SideMenuPro
                 />
               </View>
 
-              <View style={[styles.footer, { borderTopColor: theme.backgroundSelected }]}>
-                {userEmail && (
-                  <ThemedText numberOfLines={1} themeColor="textSecondary" type="small">
-                    {userEmail}
-                  </ThemedText>
-                )}
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={handleSignOut}
-                  style={[styles.signOutButton, { backgroundColor: theme.primary }]}>
-                  <ThemedText style={styles.signOutText}>Cerrar sesión</ThemedText>
-                </Pressable>
-              </View>
             </SafeAreaView>
           </Animated.View>
         </GestureDetector>
@@ -346,21 +355,19 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'left',
   },
-  footer: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    gap: Spacing.three,
-    marginTop: 'auto',
-    padding: Spacing.three,
-  },
-  signOutButton: {
+  signOutIconButton: {
     alignItems: 'center',
-    borderRadius: Spacing.two,
-    minHeight: 48,
+    borderColor: 'rgba(255, 255, 255, 0.5)',
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    height: 36,
     justifyContent: 'center',
+    width: 36,
   },
-  signOutText: {
+  signOutIcon: {
     color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
+    fontFamily: 'MaterialSymbols',
+    fontSize: 21,
+    lineHeight: 24,
   },
 });

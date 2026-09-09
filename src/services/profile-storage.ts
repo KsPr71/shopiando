@@ -3,8 +3,11 @@ export type LocalProfile = {
   phone: string;
   birthDate: string;
   address: string;
+  gender: ProfileGender;
   avatarUri: string | null;
 };
+
+export type ProfileGender = '' | 'male' | 'female';
 
 export async function getLocalProfile(_userId: string): Promise<LocalProfile | null> {
   return null;

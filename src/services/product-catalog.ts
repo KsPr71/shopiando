@@ -33,6 +33,10 @@ export type Product = {
 
 export type ProductUnitType = 'unit' | 'pound';
 
+export type ProductCatalogChange = { type: 'upsert'; product: Product } | { type: 'delete'; productId: string };
+
+const catalogListeners = new Set<(change: ProductCatalogChange) => void>();
+
 type ProductRow = {
   id: string;
   owner_id: string;
@@ -135,6 +139,7 @@ export async function addProduct(input: {
 
   const result = await toProduct(client, data as ProductRow);
   await upsertCachedProduct(result);
+  notifyProductCatalogChanged({ type: 'upsert', product: result });
   return result;
 }
 
@@ -169,6 +174,7 @@ export async function updateProduct(productId: string, input: {
 
   const result = await toProduct(supabase, data as ProductRow);
   await upsertCachedProduct(result);
+  notifyProductCatalogChanged({ type: 'upsert', product: result });
   return result;
 }
 
@@ -182,6 +188,7 @@ export async function deleteProduct(productId: string): Promise<void> {
     throw error;
   }
   await removeCachedProduct(productId);
+  notifyProductCatalogChanged({ type: 'delete', productId });
 }
 
 export function isProductAdmin(user: User): boolean {
@@ -205,12 +212,19 @@ export async function setProductAvailability(productId: string, isAvailable: boo
 
   const cachedProduct = (await getCachedProductCatalog()).find((product) => product.id === productId);
   if (cachedProduct) {
-    await upsertCachedProduct({ ...cachedProduct, isAvailable });
+    const product = { ...cachedProduct, isAvailable };
+    await upsertCachedProduct(product);
+    notifyProductCatalogChanged({ type: 'upsert', product });
   }
 }
 
+export function subscribeToLocalProductCatalogChanges(listener: (change: ProductCatalogChange) => void): () => void {
+  catalogListeners.add(listener);
+  return () => { catalogListeners.delete(listener); };
+}
+
 export function subscribeToProductCatalog(
-  onChange: (change: { type: 'upsert'; product: Product } | { type: 'delete'; productId: string }) => void,
+  onChange: (change: ProductCatalogChange) => void,
   onStatus: (status: 'connecting' | 'live' | 'offline') => void,
 ): () => void {
   if (!supabase) {
@@ -255,6 +269,10 @@ export function subscribeToProductCatalog(
   return () => {
     void client.removeChannel(channel);
   };
+}
+
+function notifyProductCatalogChanged(change: ProductCatalogChange): void {
+  catalogListeners.forEach((listener) => listener(change));
 }
 
 export async function quoteProductOrder(items: Array<{ productId: string; quantity: number }>) {

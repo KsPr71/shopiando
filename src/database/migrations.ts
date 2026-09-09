@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-const DATABASE_VERSION = 7;
+const DATABASE_VERSION = 10;
 
 /** Creates the local, offline-first data store. Monetary values are integer cents. */
 export async function migrateDatabase(database: SQLiteDatabase): Promise<void> {
@@ -200,6 +200,57 @@ export async function migrateDatabase(database: SQLiteDatabase): Promise<void> {
         ON order_notifications(recipient_id, read_at, created_at DESC);
     `);
     version = 7;
+  }
+
+  if (version === 7) {
+    await database.execAsync(`
+      CREATE TABLE IF NOT EXISTS warehouse_cache (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        location TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        synced_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS warehouse_item_cache (
+        id TEXT PRIMARY KEY NOT NULL,
+        warehouse_id TEXT NOT NULL,
+        warehouse_name TEXT NOT NULL,
+        owner_id TEXT NOT NULL,
+        owner_name TEXT NOT NULL,
+        name TEXT NOT NULL,
+        unit_type TEXT NOT NULL,
+        quantity REAL NOT NULL,
+        image_url TEXT,
+        status TEXT NOT NULL,
+        extracted_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        synced_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS warehouse_item_cache_by_owner
+        ON warehouse_item_cache(owner_id, status, updated_at DESC);
+    `);
+    version = 8;
+  }
+
+  if (version === 8) {
+    const columns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(local_profile_details)');
+    if (!columns.some((column) => column.name === 'gender')) {
+      await database.execAsync(`
+        ALTER TABLE local_profile_details
+        ADD COLUMN gender TEXT NOT NULL DEFAULT '';
+      `);
+    }
+    version = 9;
+  }
+
+  if (version === 9) {
+    const columns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(warehouse_item_cache)');
+    if (!columns.some((column) => column.name === 'created_at')) {
+      await database.execAsync("ALTER TABLE warehouse_item_cache ADD COLUMN created_at TEXT NOT NULL DEFAULT ''");
+    }
+    version = 10;
   }
 
   await database.execAsync(`PRAGMA user_version = ${version}`);

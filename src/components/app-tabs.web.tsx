@@ -33,7 +33,7 @@ export default function AppTabs() {
             <TabButton>Home</TabButton>
           </TabTrigger>
           <TabTrigger name="explore" href="/explore" asChild>
-            <TabButton>Explore</TabButton>
+            <TabButton>Almacén</TabButton>
           </TabTrigger>
           <TabTrigger name="products" href="/products" asChild>
             <TabButton>Productos</TabButton>
