@@ -86,6 +86,9 @@ export async function unregisterPushToken(userId: string): Promise<void> {
 }
 
 function getNotifications(): NotificationsModule | null {
+  if (Constants.executionEnvironment === 'storeClient' || Constants.appOwnership === 'expo') {
+    return null;
+  }
   try {
     return require('expo-notifications') as NotificationsModule;
   } catch {
