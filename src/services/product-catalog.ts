@@ -9,6 +9,7 @@ import {
   upsertCachedProduct,
 } from '@/services/product-catalog-cache';
 import { supabase } from '@/services/supabase';
+import { notifyProductCreated } from '@/services/push-notifications';
 
 export const PRODUCT_CATEGORIES = ['carnicos', 'vegetales', 'viandas', 'legumbres'] as const;
 export type ProductCategory = string;
@@ -140,6 +141,9 @@ export async function addProduct(input: {
   const result = await toProduct(client, data as ProductRow);
   await upsertCachedProduct(result);
   notifyProductCatalogChanged({ type: 'upsert', product: result });
+  void notifyProductCreated(result.id).catch((error) => {
+    console.warn('No se pudo enviar la notificaci\u00f3n del nuevo producto.', error);
+  });
   return result;
 }
 

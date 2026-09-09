@@ -3,6 +3,7 @@ import { createOrderNotifications } from '@/services/order-notifications';
 import { notifyPurchaseSummaryChanged } from '@/services/purchase-summary';
 import { syncPurchaseOrderToSupabase } from '@/services/purchase-order-sync';
 import { getDirectoryUsers } from '@/services/user-directory';
+import { notifyPurchaseOrderAssigned } from '@/services/push-notifications';
 
 export type Product = {
   id: string;
@@ -148,6 +149,9 @@ export async function createPurchaseOrder(
   notifyPurchaseSummaryChanged();
   try {
     await syncPurchaseOrderToSupabase(orderId);
+    void notifyPurchaseOrderAssigned(orderId).catch((error) => {
+      console.warn('No se pudo enviar la notificaci\u00f3n del pedido.', error);
+    });
     return { synced: true };
   } catch (error) {
     return {

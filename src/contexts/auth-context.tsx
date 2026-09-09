@@ -4,6 +4,7 @@ import { AppState, Platform } from 'react-native';
 
 import { supabase } from '@/services/supabase';
 import { syncCurrentUserDirectoryProfile } from '@/services/user-directory';
+import { registerPushToken, unregisterPushToken } from '@/services/push-notifications';
 
 type AuthContextValue = {
   isReady: boolean;
@@ -28,6 +29,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setSession(data.session);
       if (data.session?.user) {
         void syncCurrentUserDirectoryProfile(data.session.user).catch(() => {});
+        void registerPushToken(data.session.user.id).catch(() => {});
       }
       setIsReady(true);
     });
@@ -36,6 +38,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setSession(nextSession);
       if (nextSession?.user) {
         void syncCurrentUserDirectoryProfile(nextSession.user).catch(() => {});
+        void registerPushToken(nextSession.user.id).catch(() => {});
       }
       setIsReady(true);
     });
@@ -71,6 +74,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
       user: session?.user ?? null,
       signOut: async () => {
         if (supabase) {
+          if (session?.user) {
+            await unregisterPushToken(session.user.id).catch(() => {});
+          }
           await supabase.auth.signOut();
         }
       },
