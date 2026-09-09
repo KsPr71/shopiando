@@ -7,13 +7,13 @@ import {
   type ColorValue,
   Pressable,
   Text,
-  useColorScheme,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Colors } from "@/constants/theme";
 import { useAuth } from "@/contexts/auth-context";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 
 const tabIcons: Record<string, string> = {
   index: "home",
@@ -29,7 +29,7 @@ export default function AppTabs() {
     MaterialSymbols: MaterialSymbols_400Regular,
   });
   const scheme = useColorScheme();
-  const colors = Colors[scheme === "unspecified" ? "light" : scheme];
+  const colors = Colors[scheme];
   const insets = useSafeAreaInsets();
 
   return (

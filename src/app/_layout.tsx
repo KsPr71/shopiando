@@ -1,17 +1,26 @@
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { Suspense } from 'react';
-import { StyleSheet, useColorScheme } from 'react-native';
+import { StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { AuthProvider } from '@/contexts/auth-context';
+import { ThemeModeProvider, useThemeMode } from '@/contexts/theme-context';
 import { DatabaseProvider } from '@/database/database-provider';
 
 SplashScreen.preventAutoHideAsync();
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
+  return (
+    <ThemeModeProvider>
+      <AppContent />
+    </ThemeModeProvider>
+  );
+}
+
+function AppContent() {
+  const { colorScheme } = useThemeMode();
   return (
     <GestureHandlerRootView style={styles.root}>
       <Suspense fallback={null}>

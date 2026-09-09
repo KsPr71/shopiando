@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "shopiando",
+    "name": "Shopiando",
     "slug": "shopiando",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -17,7 +17,9 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.novadevprojects.shopiando",
+      "versionCode": 1
     },
     "web": {
       "output": "static",
@@ -36,15 +38,28 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
+          "backgroundColor": "#000000",
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
-      ]
+      ],
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {
+        "headers": {
+          "Cross-Origin-Embedder-Policy": "credentialless",
+          "Cross-Origin-Opener-Policy": "same-origin"
+        }
+      },
+      "eas": {
+        "projectId": "d2922d7b-5cc6-4b29-8cfa-0c2c65ba95ab"
+      }
+    },
+    "owner": "novadevprojects"
   }
 }

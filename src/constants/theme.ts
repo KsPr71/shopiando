@@ -14,7 +14,7 @@ export const Colors = {
     backgroundElement: "#FFF1F1",
     backgroundSelected: "#FFD93D",
     textSecondary: "#62626D",
-    primary: "#4D96FF",
+    primary: "#08469E",
     secondary: "#FFD93D",
     success: "#6BCB77",
     info: "#FF6B6B",

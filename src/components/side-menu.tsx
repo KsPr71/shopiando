@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { MaterialSymbols_400Regular } from '@expo-google-fonts/material-symbols';
+import Constants from 'expo-constants';
 import { useFonts } from 'expo-font';
 import {
   Animated,
@@ -16,7 +17,6 @@ import { usePathname, useRouter } from 'expo-router';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useAuth } from '@/contexts/auth-context';
 import { useTheme } from '@/hooks/use-theme';
@@ -142,6 +142,7 @@ export function SideMenu({ visible, userEmail, onClose, onSignOut }: SideMenuPro
   const avatarUri = localProfile?.avatarUri ?? null;
   const showAvatar = Boolean(avatarUri && avatarUri !== failedAvatarUri);
   const avatarSource = avatarUri ? { uri: avatarUri } : undefined;
+  const appVersion = Constants.expoConfig?.version ?? '1.0.0';
 
   return (
     <Modal transparent visible animationType="none" onRequestClose={onClose}>
@@ -199,29 +200,47 @@ export function SideMenu({ visible, userEmail, onClose, onSignOut }: SideMenuPro
               <View style={styles.navigation}>
                 <MenuItem
                   active={pathname === '/' || pathname === '/index'}
+                  icon="home"
                   label="Inicio"
                   onPress={() => navigate('/')}
+                  symbolsLoaded={symbolsLoaded}
                 />
                 <MenuItem
                   active={pathname === '/explore'}
+                  icon="warehouse"
                   label="Almacén"
                   onPress={() => navigate('/explore')}
+                  symbolsLoaded={symbolsLoaded}
                 />
                 <MenuItem
                   active={pathname === '/products'}
+                  icon="shopping_cart"
                   label="Productos"
                   onPress={() => navigate('/products')}
+                  symbolsLoaded={symbolsLoaded}
                 />
                 <MenuItem
                   active={pathname === '/orders'}
+                  icon="receipt_long"
                   label="Mis pedidos"
                   onPress={() => navigate('/orders')}
+                  symbolsLoaded={symbolsLoaded}
                 />
                 <MenuItem
                   active={pathname === '/profile'}
+                  icon="person"
                   label="Perfil"
                   onPress={() => navigate('/profile')}
+                  symbolsLoaded={symbolsLoaded}
                 />
+              </View>
+
+              <View style={[styles.appSignature, { borderTopColor: theme.backgroundSelected }]}>
+                <Image source={require('@/assets/images/icon.png')} style={styles.appLogo} />
+                <View>
+                  <ThemedText style={styles.appName}>Shopiando</ThemedText>
+                  <ThemedText themeColor="textSecondary" style={styles.appVersion}>Versión {appVersion}</ThemedText>
+                </View>
               </View>
 
             </SafeAreaView>
@@ -232,20 +251,21 @@ export function SideMenu({ visible, userEmail, onClose, onSignOut }: SideMenuPro
   );
 }
 
-function MenuItem({ active, label, onPress }: {
+function MenuItem({ active, icon, label, onPress, symbolsLoaded }: {
   active: boolean;
+  icon: string;
   label: string;
   onPress: () => void;
+  symbolsLoaded: boolean;
 }) {
   const theme = useTheme();
 
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={styles.menuItemPressable}>
-      <ThemedView
-        type={active ? 'backgroundSelected' : 'backgroundElement'}
-        style={styles.menuItem}>
-        <ThemedText style={[styles.menuItemText, active && { color: theme.text }]}>{label}</ThemedText>
-      </ThemedView>
+      <View style={styles.menuItem}>
+        <ThemedText style={[styles.menuItemIcon, { color: active ? theme.primary : theme.textSecondary }]}>{symbolsLoaded ? icon : '•'}</ThemedText>
+        <ThemedText style={[styles.menuItemText, { color: active ? theme.primary : theme.textSecondary }]}>{label}</ThemedText>
+      </View>
     </Pressable>
   );
 }
@@ -342,17 +362,50 @@ const styles = StyleSheet.create({
   menuItemPressable: {
     borderRadius: Spacing.two,
     overflow: 'hidden',
+    width: '100%',
   },
   menuItem: {
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: Spacing.two,
     minHeight: 48,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     paddingHorizontal: Spacing.three,
   },
   menuItemText: {
-    alignSelf: 'stretch',
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '600',
+    textAlign: 'left',
+  },
+  menuItemIcon: {
+    fontFamily: 'MaterialSymbols',
+    fontSize: 20,
+    lineHeight: 22,
+  },
+  appSignature: {
+    alignItems: 'center',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    gap: Spacing.one,
+    justifyContent: 'center',
+    marginTop: 'auto',
+    paddingBottom: Spacing.four,
+    paddingHorizontal: Spacing.three,
+    paddingTop: Spacing.three,
+  },
+  appLogo: {
+    borderRadius: 16,
+    height: 56,
+    width: 56,
+  },
+  appName: {
+    fontSize: 14,
+    fontWeight: '800',
+    textAlign: 'left',
+  },
+  appVersion: {
+    fontSize: 11,
+    marginTop: 1,
     textAlign: 'left',
   },
   signOutIconButton: {

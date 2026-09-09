@@ -12,6 +12,21 @@ export async function syncCurrentUserDirectoryProfile(user: User): Promise<void>
   if (!supabase) {
     return;
   }
+  const { data, error } = await supabase
+    .from('user_profiles')
+    .select('display_name')
+    .eq('id', user.id)
+    .maybeSingle();
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const existingName = data?.display_name.trim();
+  if (existingName) {
+    await upsertLocalDirectoryUsers([{ id: user.id, name: existingName }]);
+    return;
+  }
+
   await syncDirectoryProfileName(user.id, getUserDisplayName(user));
 }
 

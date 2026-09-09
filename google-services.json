@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "757103309288",
+    "project_id": "shopiando-app",
+    "storage_bucket": "shopiando-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:757103309288:android:302f289512935fae29745d",
+        "android_client_info": {
+          "package_name": "com.novadevprojects.shopiando"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCL99tirIjSfEq7kICoqsA3I2Au3Q6Ns3g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

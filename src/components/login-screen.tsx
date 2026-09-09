@@ -23,6 +23,7 @@ type AuthMode = "sign-in" | "sign-up";
 export function LoginScreen() {
   const theme = useTheme();
   const [mode, setMode] = useState<AuthMode>("sign-in");
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -31,7 +32,7 @@ export function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
   const isSignIn = mode === "sign-in";
   const canSubmit =
-    email.trim().length > 0 && password.length >= 6 && !isSubmitting;
+    email.trim().length > 0 && password.length >= 6 && (isSignIn || fullName.trim().length >= 2) && !isSubmitting;
 
   async function submit() {
     if (!supabase)
@@ -45,10 +46,13 @@ export function LoginScreen() {
     setIsSubmitting(true);
     setError(null);
     setMessage(null);
-    const credentials = { email: email.trim(), password };
     const { error: authError } = isSignIn
-      ? await supabase.auth.signInWithPassword(credentials)
-      : await supabase.auth.signUp(credentials);
+      ? await supabase.auth.signInWithPassword({ email: email.trim(), password })
+      : await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+          options: { data: { full_name: fullName.trim() } },
+        });
     setIsSubmitting(false);
     if (authError) return setError(authError.message);
     if (!isSignIn)
@@ -77,6 +81,7 @@ export function LoginScreen() {
 
   function switchMode() {
     setMode(isSignIn ? "sign-up" : "sign-in");
+    setFullName("");
     setError(null);
     setMessage(null);
   }
@@ -109,6 +114,15 @@ export function LoginScreen() {
                 {isSignIn ? "Iniciar sesión" : "Crear cuenta"}
               </ThemedText>
               <View style={styles.fields}>
+                {!isSignIn ? (
+                  <FloatingInput
+                    label="NOMBRE COMPLETO"
+                    value={fullName}
+                    onChangeText={setFullName}
+                    placeholder="Tu nombre y apellidos"
+                    theme={theme}
+                  />
+                ) : null}
                 <FloatingInput
                   label="CORREO"
                   value={email}
