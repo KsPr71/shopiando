@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -30,9 +31,24 @@ export function LoginScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
   const isSignIn = mode === "sign-in";
   const canSubmit =
     email.trim().length > 0 && password.length >= 6 && (isSignIn || fullName.trim().length >= 2) && !isSubmitting;
+
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener("keyboardDidShow", () => {
+      setIsKeyboardVisible(true);
+      requestAnimationFrame(() => scrollViewRef.current?.scrollToEnd({ animated: true }));
+    });
+    const hideSubscription = Keyboard.addListener("keyboardDidHide", () => setIsKeyboardVisible(false));
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
 
   async function submit() {
     if (!supabase)
@@ -90,11 +106,17 @@ export function LoginScreen() {
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
           style={styles.keyboard}
         >
           <ScrollView
-            contentContainerStyle={styles.content}
+            ref={scrollViewRef}
+            contentContainerStyle={[styles.content, isKeyboardVisible && styles.contentWithKeyboard]}
+            onContentSizeChange={() => {
+              if (isKeyboardVisible) {
+                scrollViewRef.current?.scrollToEnd({ animated: false });
+              }
+            }}
             keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
@@ -275,6 +297,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 33,
     paddingVertical: 28,
+  },
+  contentWithKeyboard: {
+    justifyContent: "flex-start",
+    paddingTop: 16,
+    paddingBottom: 120,
   },
   hero: { alignItems: "center", marginBottom: 30 },
   heroLogo: { width: 112, height: 112, borderRadius: 22, marginBottom: 12 },

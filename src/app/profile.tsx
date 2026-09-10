@@ -23,8 +23,8 @@ import { useAuth } from '@/contexts/auth-context';
 import { useTheme } from '@/hooks/use-theme';
 import {
   getLocalProfile,
-  persistAvatar,
   saveLocalProfile,
+  syncProfileToSupabase,
   type ProfileGender,
   type LocalProfile,
 } from '@/services/profile-storage';
@@ -54,6 +54,7 @@ export default function ProfileScreen() {
       return;
     }
 
+    const authenticatedUser = user;
     const fallbackProfile = getProfileDefaults(user);
     let isMounted = true;
     setProfileState(fallbackProfile);
@@ -82,9 +83,25 @@ export default function ProfileScreen() {
         }
       });
 
+    void syncCurrentUserProfile();
+
     return () => {
       isMounted = false;
     };
+
+    async function syncCurrentUserProfile() {
+      try {
+        const { syncCurrentUserDirectoryProfile } = await import('@/services/user-directory');
+        await syncCurrentUserDirectoryProfile(authenticatedUser);
+        const remoteProfile = await getLocalProfile(authenticatedUser.id);
+        if (isMounted && remoteProfile) {
+          setProfileState(remoteProfile);
+          setSavedProfile(remoteProfile);
+        }
+      } catch {
+        // El perfil local permite continuar sin conexión.
+      }
+    }
 
     function setProfileState(profile: LocalProfile) {
       setFullName(profile.fullName);
@@ -154,27 +171,28 @@ export default function ProfileScreen() {
     setMessage(null);
 
     try {
-      const nextAvatarUri = selectedAvatar
-        ? await persistAvatar(profileUser.id, selectedAvatar.uri)
-        : avatarUri;
-      const nextProfile: LocalProfile = {
+      const requestedProfile: LocalProfile = {
         fullName: fullName.trim(),
         phone: phone.trim(),
         birthDate: birthDate.trim(),
         address: address.trim(),
         gender,
-        avatarUri: nextAvatarUri,
+        avatarUri: selectedAvatar?.uri ?? avatarUri,
       };
 
-      await saveLocalProfile(profileUser.id, nextProfile);
-      setProfileState(nextProfile);
-      setSavedProfile(nextProfile);
+      const confirmedProfile = await syncProfileToSupabase(profileUser.id, requestedProfile);
+      setProfileState(confirmedProfile);
+      setSavedProfile(confirmedProfile);
       setSelectedAvatar(null);
       setFailedAvatarUri(null);
       setIsEditing(false);
-      setMessage('Tu perfil se actualizó en este dispositivo.');
+      setMessage('Perfil sincronizado con Supabase. Actualizando caché local…');
+      void saveLocalProfile(profileUser.id, confirmedProfile)
+        .then(() => setMessage('Perfil sincronizado con Supabase.'))
+        .catch(() => setMessage('Perfil sincronizado con Supabase. La caché local se actualizará después.'));
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'No se pudo actualizar tu perfil.');
+      const details = saveError instanceof Error ? saveError.message : 'Error desconocido.';
+      setError(`No se pudo guardar en Supabase: ${details}`);
     } finally {
       setIsSaving(false);
     }

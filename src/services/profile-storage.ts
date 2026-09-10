@@ -15,6 +15,10 @@ export async function getLocalProfile(_userId: string): Promise<LocalProfile | n
 
 export async function saveLocalProfile(_userId: string, _profile: LocalProfile): Promise<void> {}
 
+export async function syncProfileToSupabase(_userId: string, profile: LocalProfile): Promise<LocalProfile> {
+  return profile;
+}
+
 export async function persistAvatar(_userId: string, sourceUri: string): Promise<string> {
   return sourceUri;
 }

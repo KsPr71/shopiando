@@ -1,6 +1,7 @@
 import type { User } from '@supabase/supabase-js';
 
 import { getDatabase } from '@/database/database';
+import { getLocalProfile, saveLocalProfile, syncProfileToSupabase } from '@/services/profile-storage';
 import { supabase } from '@/services/supabase';
 
 export type DirectoryUser = {
@@ -15,6 +16,7 @@ type RemoteDirectoryProfile = {
   birth_date: string;
   address: string;
   gender: '' | 'male' | 'female';
+  avatar_path: string | null;
 };
 
 export async function syncCurrentUserDirectoryProfile(user: User): Promise<void> {
@@ -23,7 +25,7 @@ export async function syncCurrentUserDirectoryProfile(user: User): Promise<void>
   }
   const { data, error } = await supabase
     .from('user_profiles')
-    .select('display_name, full_name, phone, birth_date, address, gender')
+    .select('display_name, full_name, phone, birth_date, address, gender, avatar_path')
     .eq('id', user.id)
     .maybeSingle();
   if (error) {
@@ -32,9 +34,17 @@ export async function syncCurrentUserDirectoryProfile(user: User): Promise<void>
 
   const profile = data as RemoteDirectoryProfile | null;
   const existingName = profile?.display_name.trim();
-  if (existingName) {
+  if (profile && existingName) {
     await upsertLocalDirectoryUsers([{ id: user.id, name: existingName }]);
-    await upsertLocalProfileDetails(user.id, profile);
+    if (hasProfileDetails(profile)) {
+      await upsertLocalProfileDetails(user.id, profile);
+    } else {
+      const localProfile = await getLocalProfile(user.id);
+      if (localProfile && hasLocalProfileDetails(localProfile)) {
+        const syncedProfile = await syncProfileToSupabase(user.id, localProfile);
+        await saveLocalProfile(user.id, syncedProfile);
+      }
+    }
     return;
   }
 
@@ -98,24 +108,38 @@ function getUserDisplayName(user: User): string {
 }
 
 async function upsertLocalProfileDetails(userId: string, profile: RemoteDirectoryProfile | null): Promise<void> {
-  if (!profile || (!profile.full_name && !profile.phone && !profile.birth_date && !profile.address && !profile.gender)) {
+  if (!profile || !hasProfileDetails(profile)) {
     return;
   }
   const database = await getDatabase();
+  const avatarUri = profile.avatar_path && supabase
+    ? supabase.storage.from('avatars').getPublicUrl(profile.avatar_path).data.publicUrl
+    : null;
   await database.runAsync(
     `INSERT INTO local_profile_details (user_id, full_name, phone, birth_date, address, gender, avatar_uri, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, NULL, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id) DO UPDATE SET
        full_name = excluded.full_name, phone = excluded.phone, birth_date = excluded.birth_date,
-       address = excluded.address, gender = excluded.gender, updated_at = excluded.updated_at`,
+       address = excluded.address, gender = excluded.gender,
+       avatar_uri = coalesce(excluded.avatar_uri, local_profile_details.avatar_uri),
+       updated_at = excluded.updated_at`,
     userId,
     profile.full_name || profile.display_name,
     profile.phone,
     profile.birth_date,
     profile.address,
     profile.gender,
+    avatarUri,
     new Date().toISOString(),
   );
+}
+
+function hasProfileDetails(profile: RemoteDirectoryProfile): boolean {
+  return Boolean(profile.full_name || profile.phone || profile.birth_date || profile.address || profile.gender || profile.avatar_path);
+}
+
+function hasLocalProfileDetails(profile: Awaited<ReturnType<typeof getLocalProfile>>): boolean {
+  return Boolean(profile && (profile.fullName || profile.phone || profile.birthDate || profile.address || profile.gender || profile.avatarUri));
 }
 
 async function upsertLocalDirectoryUsers(users: DirectoryUser[]): Promise<void> {
