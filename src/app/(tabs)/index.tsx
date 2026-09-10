@@ -29,6 +29,7 @@ import {
 } from "@/services/assigned-purchase-orders";
 import { playNotificationSound } from "@/services/notification-sound";
 import {
+  clearReadOrderNotifications,
   getOrderNotifications,
   markOrderNotificationsRead,
   subscribeToOrderNotifications,
@@ -43,7 +44,11 @@ import {
   type Product,
 } from "@/services/product-catalog";
 import { getLocalProfile, type LocalProfile } from "@/services/profile-storage";
-import { syncPurchaseOrdersToSupabase } from "@/services/purchase-order-sync";
+import {
+  subscribeToPurchaseOrders,
+  syncPurchaseOrdersFromSupabase,
+  syncPurchaseOrdersToSupabase,
+} from "@/services/purchase-order-sync";
 import { subscribeToPurchaseSummaryChanges } from "@/services/purchase-summary";
 
 export default function HomeScreen() {
@@ -137,13 +142,17 @@ export default function HomeScreen() {
         })
         .catch(() => {});
     };
-    void syncPurchaseOrdersToSupabase().finally(refreshOrders);
+    void syncPurchaseOrdersToSupabase()
+      .then(() => syncPurchaseOrdersFromSupabase(user.id))
+      .finally(refreshOrders);
     refreshOrders();
-    const unsubscribe = subscribeToPurchaseSummaryChanges(refreshOrders);
+    const unsubscribeSummary = subscribeToPurchaseSummaryChanges(refreshOrders);
+    const unsubscribeRemote = subscribeToPurchaseOrders(user.id, refreshOrders);
 
     return () => {
       isMounted = false;
-      unsubscribe();
+      unsubscribeSummary();
+      unsubscribeRemote();
     };
   }, [user?.id]);
 
@@ -359,7 +368,7 @@ export default function HomeScreen() {
     }
   }
 
-  function openNotifications() {
+  async function openNotifications() {
     setIsNotificationsVisible(true);
     if (user && notifications.some((notification) => !notification.readAt)) {
       setNotifications((current) =>
@@ -368,8 +377,18 @@ export default function HomeScreen() {
           readAt: notification.readAt ?? new Date().toISOString(),
         })),
       );
-      void markOrderNotificationsRead(user.id).catch(() => {});
+      await markOrderNotificationsRead(user.id).catch(() => {});
     }
+  }
+
+  async function clearReadNotifications() {
+    if (!user) {
+      return;
+    }
+    try {
+      await clearReadOrderNotifications(user.id);
+      setNotifications((current) => current.filter((notification) => !notification.readAt));
+    } catch {}
   }
 
   return (
@@ -395,7 +414,7 @@ export default function HomeScreen() {
                 <Pressable
                   accessibilityLabel="Notificaciones"
                   accessibilityRole="button"
-                  onPress={openNotifications}
+                  onPress={() => void openNotifications()}
                   style={styles.iconButton}
                 >
                   <ThemedText style={styles.materialIcon}>
@@ -703,6 +722,12 @@ export default function HomeScreen() {
                                   </ThemedText>
                                   <ThemedText
                                     themeColor="textSecondary"
+                                    style={styles.orderItemSupplier}
+                                  >
+                                    {item.supplierName}
+                                  </ThemedText>
+                                  <ThemedText
+                                    themeColor="textSecondary"
                                     style={styles.orderItemQuantity}
                                   >
                                     {formatQuantity(item.quantity)} unidades
@@ -764,15 +789,22 @@ export default function HomeScreen() {
                   <ThemedText style={styles.notificationsTitle}>
                     Notificaciones
                   </ThemedText>
-                  <Pressable
-                    accessibilityLabel="Cerrar notificaciones"
-                    onPress={() => setIsNotificationsVisible(false)}
-                    style={styles.notificationsClose}
-                  >
-                    <ThemedText style={styles.materialIcon}>
-                      {symbolsLoaded ? "close" : "x"}
-                    </ThemedText>
-                  </Pressable>
+                  <View style={styles.notificationsHeaderActions}>
+                    {notifications.some((notification) => notification.readAt) ? (
+                      <Pressable accessibilityLabel="Eliminar notificaciones leídas" onPress={() => void clearReadNotifications()} style={styles.clearNotificationsButton}>
+                        <ThemedText style={[styles.clearNotificationsText, { color: theme.primary }]}>Limpiar leídas</ThemedText>
+                      </Pressable>
+                    ) : null}
+                    <Pressable
+                      accessibilityLabel="Cerrar notificaciones"
+                      onPress={() => setIsNotificationsVisible(false)}
+                      style={styles.notificationsClose}
+                    >
+                      <ThemedText style={styles.materialIcon}>
+                        {symbolsLoaded ? "close" : "x"}
+                      </ThemedText>
+                    </Pressable>
+                  </View>
                 </View>
                 {!notifications.length ? (
                   <ThemedText
@@ -1011,10 +1043,7 @@ const styles = StyleSheet.create({
     borderRadius: Spacing.three,
     maxHeight: "72%",
     padding: Spacing.three,
-    shadowColor: "#000000",
-    shadowOpacity: 0.16,
-    shadowRadius: 16,
-    elevation: 8,
+    boxShadow: "0px 4px 16px rgba(0, 0, 0, 0.16)",
   },
   notificationsPanelHeader: {
     alignItems: "center",
@@ -1022,6 +1051,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: Spacing.two,
   },
+  notificationsHeaderActions: { alignItems: "center", flexDirection: "row", gap: Spacing.one },
+  clearNotificationsButton: { paddingHorizontal: Spacing.one, paddingVertical: Spacing.one },
+  clearNotificationsText: { fontSize: 12, fontWeight: "800" },
   notificationsTitle: { fontSize: 18, fontWeight: "800" },
   notificationsClose: {
     alignItems: "center",
@@ -1169,6 +1201,7 @@ const styles = StyleSheet.create({
   },
   orderItemInfo: { flex: 1, minWidth: 0 },
   orderItemName: { fontSize: 13, fontWeight: "700" },
+  orderItemSupplier: { fontSize: 11, marginTop: 1 },
   purchasedItem: { textDecorationLine: "line-through" },
   purchasedFeedback: { fontSize: 11, fontWeight: "700", marginTop: 2 },
   orderItemQuantity: { fontSize: 11, marginTop: 1 },

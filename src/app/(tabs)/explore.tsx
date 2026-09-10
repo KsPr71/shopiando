@@ -18,6 +18,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { SideMenu } from '@/components/side-menu';
+import { ImageZoomPreview } from '@/components/image-zoom-preview';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
@@ -135,9 +136,20 @@ export default function WarehouseScreen() {
     return <Redirect href="/" />;
   }
   const currentUser = user;
-  const warehouseGroups = warehouses
-    .map((warehouse) => ({ warehouse, items: items.filter((item) => item.warehouseId === warehouse.id) }))
-    .filter((group) => group.items.length > 0);
+  const ownerGroups = Array.from(
+    items.reduce((groups, item) => {
+      const ownerItems = groups.get(item.ownerId) ?? [];
+      ownerItems.push(item);
+      groups.set(item.ownerId, ownerItems);
+      return groups;
+    }, new Map<string, WarehouseItem[]>()),
+  )
+    .map(([ownerId, ownerItems]) => ({
+      ownerId,
+      ownerName: ownerItems[0]?.ownerName ?? 'Usuario',
+      items: ownerItems.sort((first, second) => first.warehouseName.localeCompare(second.warehouseName) || first.name.localeCompare(second.name)),
+    }))
+    .sort((first, second) => first.ownerName.localeCompare(second.ownerName));
 
   function displayUserName() {
     return String(currentUser.user_metadata.full_name ?? currentUser.user_metadata.name ?? currentUser.email?.split('@')[0] ?? 'Usuario');
@@ -277,17 +289,24 @@ export default function WarehouseScreen() {
           <Pressable accessibilityLabel="Añadir artículo" onPress={openNewItem} style={[styles.addButton, { backgroundColor: theme.primary }]}><ThemedText style={styles.addButtonText}>+</ThemedText></Pressable>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} style={styles.itemScroll}>
           {error ? <ThemedText style={[styles.feedback, { color: theme.info }]}>{error}</ThemedText> : null}
           {message ? <ThemedText style={[styles.feedback, { color: theme.success }]}>{message}</ThemedText> : null}
-          {isLoading ? <View style={styles.centered}><ActivityIndicator /></View> : items.length ? <View style={styles.warehouseGroups}>{warehouseGroups.map(({ warehouse, items: warehouseItems }) => (
-            <View key={warehouse.id} style={styles.warehouseGroup}>
+          {isLoading ? <View style={styles.centered}><ActivityIndicator /></View> : items.length ? <View style={styles.warehouseGroups}>{ownerGroups.map((group) => (
+            <View key={group.ownerId} style={styles.warehouseGroup}>
               <View style={[styles.warehouseHeader, { borderBottomColor: theme.backgroundSelected }]}>
-                <ThemedText style={styles.warehouseTitle}>{warehouse.name}</ThemedText>
-                {warehouse.location ? <ThemedText themeColor="textSecondary" style={styles.warehouseLocation}>{warehouse.location}</ThemedText> : null}
+                <View style={styles.ownerGroupInfo}>
+                  <View style={[styles.ownerGroupAvatar, { borderColor: theme.secondary }]}>
+                    {ownerAvatarUris[group.ownerId] ? <Image source={{ uri: ownerAvatarUris[group.ownerId] ?? undefined }} contentFit="cover" style={styles.ownerGroupAvatarImage} /> : <ThemedText style={styles.ownerGroupAvatarInitial}>{group.ownerName.charAt(0).toUpperCase()}</ThemedText>}
+                  </View>
+                  <View>
+                    <ThemedText style={styles.warehouseTitle}>{group.ownerName}</ThemedText>
+                    <ThemedText themeColor="textSecondary" style={styles.warehouseLocation}>{group.items.length} {group.items.length === 1 ? 'artículo' : 'artículos'}</ThemedText>
+                  </View>
+                </View>
               </View>
-              <View style={styles.itemList}>{warehouseItems.map((item) => (
-                <WarehouseItemCard key={item.id} item={item} ownerAvatarUri={ownerAvatarUris[item.ownerId] ?? null} canManageAll={canManageAll} symbolsLoaded={symbolsLoaded} onEdit={() => openEditItem(item)} onExtract={() => { setExtractingItem(item); setExtractedQuantity(''); setError(null); setIsExtractModalVisible(true); }} onDelete={() => confirmDelete(item)} />
+              <View style={styles.itemList}>{group.items.map((item) => (
+                <WarehouseItemCard key={item.id} item={item} canManageAll={canManageAll} symbolsLoaded={symbolsLoaded} onEdit={() => openEditItem(item)} onExtract={() => { setExtractingItem(item); setExtractedQuantity(''); setError(null); setIsExtractModalVisible(true); }} onDelete={() => confirmDelete(item)} />
               ))}</View>
             </View>
           ))}</View> : <ThemedText themeColor="textSecondary" style={styles.emptyState}>{warehouses.length ? 'No tienes artículos almacenados.' : 'Aún no hay almacenes disponibles.'}</ThemedText>}
@@ -338,18 +357,13 @@ export default function WarehouseScreen() {
   );
 }
 
-function WarehouseItemCard({ item, ownerAvatarUri, canManageAll, symbolsLoaded, onEdit, onExtract, onDelete }: { item: WarehouseItem; ownerAvatarUri: string | null; canManageAll: boolean; symbolsLoaded: boolean; onEdit: () => void; onExtract: () => void; onDelete: () => void }) {
-  const theme = useTheme();
+function WarehouseItemCard({ item, canManageAll, symbolsLoaded, onEdit, onExtract, onDelete }: { item: WarehouseItem; canManageAll: boolean; symbolsLoaded: boolean; onEdit: () => void; onExtract: () => void; onDelete: () => void }) {
   const canChange = canManageAll || item.status === 'active';
-  const ownerInitials = item.ownerName.split(/\s+/).filter(Boolean).slice(0, 2).map((name) => name[0]).join('').toUpperCase();
   return <ThemedView type="backgroundElement" style={[styles.itemCard, item.status === 'extracted' && styles.extractedCard]}>
-    {item.imageUrl ? <Image source={{ uri: item.imageUrl }} contentFit="cover" style={styles.itemImage} /> : <View style={styles.imageFallback}><ThemedText style={styles.imageFallbackText}>{item.name[0]?.toUpperCase()}</ThemedText></View>}
+    {item.imageUrl ? <ImageZoomPreview accessibilityLabel={`Ampliar imagen de ${item.name}`} sourceUri={item.imageUrl} style={styles.itemImage} /> : <View style={styles.imageFallback}><ThemedText style={styles.imageFallbackText}>{item.name[0]?.toUpperCase()}</ThemedText></View>}
     <View style={styles.itemBody}>
-      <View><ThemedText numberOfLines={1} style={styles.itemName}>{item.name}</ThemedText><ThemedText themeColor="textSecondary" style={styles.itemMeta}>{item.warehouseName} · {formatQuantity(item.quantity)} {formatUnit(item.unitType)}</ThemedText>{canManageAll ? <ThemedText themeColor="textSecondary" style={styles.itemMeta}>Dueño: {item.ownerName}</ThemedText> : null}<View style={styles.dateRow}><ThemedText themeColor="textSecondary" style={styles.itemDate}>Entrada: {formatDate(item.createdAt) || '—'}</ThemedText>{item.extractedAt ? <ThemedText themeColor="textSecondary" style={styles.itemDate}>Extraído: {formatDate(item.extractedAt)}</ThemedText> : null}</View></View>
-      <View style={styles.cardFooter}><ThemedText style={[styles.status, item.status === 'extracted' && styles.extractedStatus]}>{item.status === 'extracted' ? `Extraído · ${formatDate(item.extractedAt)}` : 'Disponible'}</ThemedText><View style={styles.actions}>{canChange ? <Pressable accessibilityLabel="Extraer" onPress={onExtract} style={styles.actionButton}><ThemedText style={styles.materialIcon}>{symbolsLoaded ? 'remove_circle_outline' : '−'}</ThemedText></Pressable> : null}<Pressable accessibilityLabel="Editar" onPress={onEdit} style={styles.actionButton}><ThemedText style={styles.materialIcon}>{symbolsLoaded ? 'edit' : '✎'}</ThemedText></Pressable>{canManageAll ? <Pressable accessibilityLabel="Eliminar" onPress={onDelete} style={styles.actionButton}><ThemedText style={styles.materialIcon}>{symbolsLoaded ? 'delete' : '×'}</ThemedText></Pressable> : null}</View></View>
-    </View>
-    <View style={[styles.ownerAvatar, { borderColor: theme.secondary }]}>
-      {ownerAvatarUri ? <Image source={{ uri: ownerAvatarUri }} contentFit="cover" style={styles.ownerAvatarImage} /> : <ThemedText style={styles.ownerAvatarInitial}>{ownerInitials}</ThemedText>}
+      <View><ThemedText numberOfLines={1} style={styles.itemName}>{item.name}</ThemedText><ThemedText themeColor="textSecondary" style={styles.itemMeta}>{item.warehouseName} · {formatQuantity(item.quantity)} {formatUnit(item.unitType)}</ThemedText><View style={styles.dateRow}><ThemedText themeColor="textSecondary" style={styles.itemDate}>Entrada: {formatDate(item.createdAt) || '—'}</ThemedText>{item.extractedAt ? <ThemedText themeColor="textSecondary" style={styles.itemDate}>Extraído: {formatDate(item.extractedAt)}</ThemedText> : null}</View></View>
+      <View style={styles.cardFooter}><View style={styles.actionStack}><ThemedText style={[styles.status, item.status === 'extracted' && styles.extractedStatus]}>{item.status === 'extracted' ? `Extraído · ${formatDate(item.extractedAt)}` : 'Disponible'}</ThemedText><View style={styles.actions}>{canChange ? <Pressable accessibilityLabel="Extraer" onPress={onExtract} style={styles.actionButton}><ThemedText style={styles.materialIcon}>{symbolsLoaded ? 'remove_circle_outline' : '−'}</ThemedText></Pressable> : null}<Pressable accessibilityLabel="Editar" onPress={onEdit} style={styles.actionButton}><ThemedText style={styles.materialIcon}>{symbolsLoaded ? 'edit' : '✎'}</ThemedText></Pressable>{canManageAll ? <Pressable accessibilityLabel="Eliminar" onPress={onDelete} style={styles.actionButton}><ThemedText style={styles.materialIcon}>{symbolsLoaded ? 'delete' : '×'}</ThemedText></Pressable> : null}</View></View></View>
     </View>
   </ThemedView>;
 }
@@ -388,7 +402,7 @@ const styles = StyleSheet.create({
   container: { backgroundColor: '#FAF9F6', flex: 1 }, safeArea: { flex: 1 }, centered: { alignItems: 'center', flex: 1, justifyContent: 'center' },
   topBar: { alignItems: 'center', flexDirection: 'row', gap: Spacing.two, paddingHorizontal: Spacing.four, paddingVertical: Spacing.three }, menuButton: { alignItems: 'center', borderRadius: Spacing.two, height: 44, justifyContent: 'center', width: 44 }, menuIcon: { fontSize: 24 }, titleBlock: { flex: 1 }, title: { fontSize: 22, fontWeight: '800' }, subtitle: { fontSize: 13, marginTop: 2 }, syncIndicator: { alignItems: 'center', flexDirection: 'row', gap: 5, marginTop: 3 }, syncDot: { borderRadius: 4, height: 7, width: 7 }, syncText: { fontSize: 10, fontWeight: '600' },
   iconButton: { alignItems: 'center', borderRadius: 18, borderWidth: 1, height: 36, justifyContent: 'center', width: 36 }, addButton: { alignItems: 'center', borderRadius: 18, height: 36, justifyContent: 'center', width: 36 }, addButtonText: { color: '#FFFFFF', fontSize: 24, lineHeight: 26 }, materialIcon: { fontFamily: 'MaterialSymbols', fontSize: 21, lineHeight: 24, textAlign: 'center' },
-  content: { alignSelf: 'center', flexGrow: 1, maxWidth: MaxContentWidth, padding: Spacing.three, paddingBottom: Spacing.four, width: '100%' }, warehouseGroups: { gap: Spacing.three }, warehouseGroup: { gap: Spacing.two }, warehouseHeader: { borderBottomWidth: StyleSheet.hairlineWidth, paddingBottom: Spacing.one }, warehouseTitle: { fontSize: 17, fontWeight: '800' }, warehouseLocation: { fontSize: 12, marginTop: 2 }, itemList: { gap: Spacing.two }, emptyState: { paddingVertical: Spacing.four, textAlign: 'center' }, feedback: { marginBottom: Spacing.two, textAlign: 'center' },
-  itemCard: { alignItems: 'stretch', backgroundColor: '#FFFFFF', borderColor: '#EAE6DF', borderRadius: Spacing.three, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', minHeight: 104, padding: Spacing.two, position: 'relative' }, extractedCard: { opacity: 0.62 }, itemImage: { alignSelf: 'stretch', borderRadius: Spacing.two, width: 88 }, imageFallback: { alignItems: 'center', alignSelf: 'stretch', backgroundColor: '#EEF1F3', borderRadius: Spacing.two, justifyContent: 'center', width: 88 }, imageFallbackText: { color: '#4D96FF', fontSize: 26, fontWeight: '800' }, itemBody: { alignSelf: 'stretch', flex: 1, justifyContent: 'space-between', paddingLeft: Spacing.two, paddingRight: Spacing.five }, itemName: { fontSize: 16, fontWeight: '800' }, itemMeta: { fontSize: 12, marginTop: 2 }, dateRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.one, marginTop: 3 }, itemDate: { fontSize: 10 }, cardFooter: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' }, status: { color: '#258D42', fontSize: 11, fontWeight: '800' }, extractedStatus: { color: '#8A5D00' }, actions: { flexDirection: 'row', gap: Spacing.one }, actionButton: { alignItems: 'center', height: 30, justifyContent: 'center', width: 30 }, ownerAvatar: { alignItems: 'center', backgroundColor: '#FFF1F1', borderRadius: 22, borderWidth: 2, height: 44, justifyContent: 'center', overflow: 'hidden', position: 'absolute', right: Spacing.two, top: Spacing.two, width: 44 }, ownerAvatarImage: { height: '100%', width: '100%' }, ownerAvatarInitial: { color: '#4D96FF', fontSize: 14, fontWeight: '800' },
+  content: { alignSelf: 'center', flexGrow: 1, maxWidth: MaxContentWidth, padding: Spacing.three, paddingBottom: Spacing.four, width: '100%' }, itemScroll: { flex: 1 }, warehouseGroups: { gap: Spacing.three }, warehouseGroup: { gap: Spacing.two }, warehouseHeader: { borderBottomWidth: StyleSheet.hairlineWidth, paddingBottom: Spacing.one }, ownerGroupInfo: { alignItems: 'center', flexDirection: 'row', gap: Spacing.two }, ownerGroupAvatar: { alignItems: 'center', backgroundColor: '#FFF1F1', borderRadius: 20, borderWidth: 2, height: 40, justifyContent: 'center', overflow: 'hidden', width: 40 }, ownerGroupAvatarImage: { height: '100%', width: '100%' }, ownerGroupAvatarInitial: { color: '#4D96FF', fontSize: 14, fontWeight: '800' }, warehouseTitle: { fontSize: 17, fontWeight: '800' }, warehouseLocation: { fontSize: 12, marginTop: 2 }, itemList: { gap: Spacing.two }, emptyState: { paddingVertical: Spacing.four, textAlign: 'center' }, feedback: { fontSize: 11, marginBottom: Spacing.two, textAlign: 'center' },
+  itemCard: { alignItems: 'stretch', backgroundColor: '#FFFFFF', borderColor: '#EAE6DF', borderRadius: Spacing.three, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', minHeight: 128, padding: Spacing.two }, extractedCard: { opacity: 0.62 }, itemImage: { borderRadius: Spacing.two, height: 112, width: 112 }, imageFallback: { alignItems: 'center', backgroundColor: '#EEF1F3', borderRadius: Spacing.two, height: 112, justifyContent: 'center', width: 112 }, imageFallbackText: { color: '#4D96FF', fontSize: 26, fontWeight: '800' }, itemBody: { alignSelf: 'stretch', flex: 1, justifyContent: 'space-between', paddingLeft: Spacing.three }, itemName: { fontSize: 16, fontWeight: '800' }, itemMeta: { fontSize: 12, marginTop: 2 }, dateRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.one, marginTop: 3 }, itemDate: { fontSize: 10 }, cardFooter: { alignItems: 'center', flexDirection: 'row', justifyContent: 'flex-end' }, actionStack: { alignItems: 'center', backgroundColor: '#FFFCF5', borderRadius: Spacing.two, flexDirection: 'row', gap: Spacing.one, paddingHorizontal: Spacing.one, paddingVertical: 2 }, status: { color: '#258D42', fontSize: 10, fontWeight: '800' }, extractedStatus: { color: '#8A5D00' }, actions: { flexDirection: 'row', gap: 2 }, actionButton: { alignItems: 'center', height: 26, justifyContent: 'center', width: 26 },
   backdrop: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.42)', flex: 1, justifyContent: 'center', padding: Spacing.four }, modal: { borderRadius: Spacing.four, gap: Spacing.three, maxHeight: '88%', maxWidth: 440, padding: Spacing.four, width: '100%' }, modalContent: { gap: Spacing.two }, modalTitle: { fontSize: 21, fontWeight: '800' }, imagePicker: { alignItems: 'center', borderRadius: Spacing.two, borderStyle: 'dashed', borderWidth: 1, height: 100, justifyContent: 'center', overflow: 'hidden' }, imagePreview: { height: '100%', width: '100%' }, input: { borderRadius: Spacing.two, borderWidth: 1, fontSize: 16, minHeight: 48, paddingHorizontal: Spacing.two }, unitRow: { alignItems: 'center', flexDirection: 'row', gap: Spacing.one }, fieldLabel: { fontSize: 13, fontWeight: '700' }, optionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.one }, option: { borderRadius: 14, borderWidth: 1, paddingHorizontal: Spacing.two, paddingVertical: Spacing.one }, optionText: { fontSize: 12, fontWeight: '700' }, optionTextSelected: { color: '#FFFFFF' }, ownerField: { gap: Spacing.one }, ownerSelect: { alignItems: 'center', borderRadius: Spacing.two, borderWidth: 1, flexDirection: 'row', justifyContent: 'space-between', minHeight: 48, paddingHorizontal: Spacing.two }, ownerValue: { flex: 1, fontSize: 15 }, ownerChevron: { fontSize: 18 }, ownerOptions: { borderRadius: Spacing.two, borderWidth: 1, overflow: 'hidden' }, ownerOption: { minHeight: 44, justifyContent: 'center', paddingHorizontal: Spacing.two }, modalError: { fontSize: 13, textAlign: 'center' }, saveButton: { alignItems: 'center', borderRadius: Spacing.two, height: 48, justifyContent: 'center' }, saveButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' }, cancelButton: { alignItems: 'center', paddingVertical: Spacing.one }, cancelButtonText: { fontSize: 15, fontWeight: '800' }, deleteButton: { alignItems: 'center', paddingVertical: Spacing.one }, deleteButtonText: { color: '#C2410C', fontSize: 14, fontWeight: '800' }, disabled: { opacity: 0.45 }, extractCopy: { fontSize: 14 },
 });

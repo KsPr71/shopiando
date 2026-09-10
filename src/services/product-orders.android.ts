@@ -1,7 +1,7 @@
 import { getDatabase } from '@/database/database';
 import { createOrderNotifications } from '@/services/order-notifications';
 import { notifyPurchaseSummaryChanged } from '@/services/purchase-summary';
-import { syncPurchaseOrderToSupabase } from '@/services/purchase-order-sync';
+import { markPurchaseOrderForSync, syncPurchaseOrderToSupabase } from '@/services/purchase-order-sync';
 import { getDirectoryUsers } from '@/services/user-directory';
 import { notifyPurchaseOrderAssigned } from '@/services/push-notifications';
 
@@ -22,6 +22,7 @@ export type OrderAssignee = {
 
 export type OrderLine = Pick<Product, 'id' | 'name' | 'unit' | 'priceCents'> & {
   quantity: number;
+  supplierName: string;
   lineTotalCents?: number;
 };
 
@@ -131,8 +132,8 @@ export async function createPurchaseOrder(
       await database.runAsync(
         `INSERT INTO purchase_request_items (
           id, request_id, product_id, product_name, unit, quantity,
-          estimated_unit_price_cents, status, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+          estimated_unit_price_cents, supplier_name, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
         createId('item'),
         orderId,
         null,
@@ -140,11 +141,13 @@ export async function createPurchaseOrder(
         line.unit,
         line.quantity,
         Math.round((line.lineTotalCents ?? line.priceCents * line.quantity) / line.quantity),
+        line.supplierName,
         now,
         now
       );
     }
   });
+  await markPurchaseOrderForSync(orderId);
   await createOrderNotifications(orderId, userId, assigneeId, displayName);
   notifyPurchaseSummaryChanged();
   try {

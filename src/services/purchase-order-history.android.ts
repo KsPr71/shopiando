@@ -3,6 +3,7 @@ import { getDatabase } from '@/database/database';
 export type PurchaseHistoryItem = {
   id: string;
   name: string;
+  supplierName: string;
   quantity: number;
   estimatedUnitPriceCents: number;
 };
@@ -28,6 +29,7 @@ type HistoryRow = {
   invoiced_total_cents: number;
   item_id: string;
   product_name: string;
+  supplier_name: string;
   quantity: number;
   estimated_unit_price_cents: number;
 };
@@ -54,6 +56,7 @@ async function getHistory(userId: string, type: 'requested' | 'assigned'): Promi
        request.invoiced_total_cents,
        item.id AS item_id,
        item.product_name,
+       item.supplier_name,
        item.quantity,
        item.estimated_unit_price_cents
      FROM purchase_requests AS request
@@ -80,6 +83,7 @@ async function getHistory(userId: string, type: 'requested' | 'assigned'): Promi
     order.items.push({
       id: row.item_id,
       name: row.product_name,
+      supplierName: row.supplier_name || 'Sin proveedor',
       quantity: Number(row.quantity),
       estimatedUnitPriceCents: Number(row.estimated_unit_price_cents),
     });

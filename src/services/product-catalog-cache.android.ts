@@ -4,6 +4,7 @@ import type { Product } from '@/services/product-catalog';
 type CachedProductRow = {
   id: string;
   owner_id: string;
+  supplier_id: string | null;
   name: string;
   description: string;
   category: string;
@@ -23,7 +24,7 @@ export async function getCachedProductCatalog(): Promise<Product[]> {
     try {
       const database = await getDatabase();
       const rows = await database.getAllAsync<CachedProductRow>(`
-        SELECT id, owner_id, name, description, category, price_cents, unit_type,
+        SELECT id, owner_id, supplier_id, name, description, category, price_cents, unit_type,
                package_quantity, is_available, image_url
         FROM product_catalog_cache
         ORDER BY synced_at DESC
@@ -75,11 +76,12 @@ function enqueue<T>(operation: () => Promise<T>): Promise<T> {
 async function writeProduct(database: Awaited<ReturnType<typeof getDatabase>>, product: Product): Promise<void> {
   await database.runAsync(
     `INSERT OR REPLACE INTO product_catalog_cache (
-      id, owner_id, name, description, category, price_cents, unit_type,
+      id, owner_id, supplier_id, name, description, category, price_cents, unit_type,
       package_quantity, is_available, image_url, synced_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     product.id,
     product.ownerId,
+    product.supplierId,
     product.name,
     product.description,
     product.category,
@@ -96,6 +98,7 @@ function toProduct(row: CachedProductRow): Product {
   return {
     id: row.id,
     ownerId: row.owner_id,
+    supplierId: row.supplier_id,
     name: row.name,
     description: row.description,
     category: row.category,

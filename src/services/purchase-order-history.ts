@@ -1,6 +1,7 @@
 export type PurchaseHistoryItem = {
   id: string;
   name: string;
+  supplierName: string;
   quantity: number;
   estimatedUnitPriceCents: number;
 };

@@ -12,6 +12,7 @@ import {
 } from '@/services/warehouse-cache';
 import { getDirectoryUsers, type DirectoryUser } from '@/services/user-directory';
 import { supabase } from '@/services/supabase';
+import { optimizeImageForUpload } from '@/services/image-upload';
 
 export type WarehouseUnitType = 'unit' | 'pound';
 export type WarehouseItemStatus = 'active' | 'extracted';
@@ -32,7 +33,9 @@ export type WarehouseItem = {
   name: string;
   unitType: WarehouseUnitType;
   quantity: number;
+  imagePath: string | null;
   imageUrl: string | null;
+  imageUrlExpiresAt: string | null;
   status: WarehouseItemStatus;
   extractedAt: string | null;
   createdAt: string;
@@ -86,8 +89,14 @@ export async function getWarehouseInventory(): Promise<{ warehouses: Warehouse[]
   const warehouses = (warehouseData ?? []).map(toWarehouse);
   const warehouseById = new Map(warehouses.map((warehouse) => [warehouse.id, warehouse]));
   const ownerNames = new Map(directory.map((profile) => [profile.id, profile.name]));
-  const items = await Promise.all((itemData ?? []).map((item) => toWarehouseItem(client, item as WarehouseItemRow, warehouseById, ownerNames)));
-  await replaceCachedWarehouseInventory(warehouses, items);
+  const cachedItems = await getCachedWarehouseItems();
+  const cachedById = new Map(cachedItems.map((item) => [item.id, item]));
+  const items = await Promise.all((itemData ?? []).map((item) =>
+    toWarehouseItem(client, item as WarehouseItemRow, warehouseById, ownerNames, cachedById.get(item.id)),
+  ));
+  try {
+    await replaceCachedWarehouseInventory(warehouses, items);
+  } catch {}
   return { warehouses, items };
 }
 
@@ -223,17 +232,32 @@ async function uploadImage(client: NonNullable<typeof supabase>, userId: string,
   if (!image) {
     return null;
   }
-  const extension = image.mimeType?.split('/')[1] ?? 'jpg';
-  const path = `${userId}/${Date.now()}.${extension.replace(/[^a-z0-9]/gi, '')}`;
-  const content = await new File(image.uri).arrayBuffer();
-  const { error } = await client.storage.from('warehouse-images').upload(path, content, { contentType: image.mimeType ?? 'image/jpeg' });
+  const optimizedImage = await optimizeImageForUpload(image);
+  const path = `${userId}/${Date.now()}.${optimizedImage.extension}`;
+  const content = await new File(optimizedImage.uri).arrayBuffer();
+  const { error } = await client.storage.from('warehouse-images').upload(path, content, { contentType: optimizedImage.contentType });
   if (error) {
     throw new Error(error.message);
   }
   return path;
 }
 
-async function toWarehouseItem(client: NonNullable<typeof supabase>, row: WarehouseItemRow, warehouseById: Map<string, Warehouse>, ownerNames: Map<string, string>): Promise<WarehouseItem> {
+async function toWarehouseItem(
+  client: NonNullable<typeof supabase>,
+  row: WarehouseItemRow,
+  warehouseById: Map<string, Warehouse>,
+  ownerNames: Map<string, string>,
+  cachedItem?: WarehouseItem,
+): Promise<WarehouseItem> {
+  const canReuseImage = Boolean(
+    cachedItem?.imageUrl
+    && cachedItem.imagePath === row.image_path
+    && cachedItem.imageUrl.includes('/storage/v1/object/public/warehouse-images/')
+  );
+  const image = canReuseImage
+    ? { url: cachedItem?.imageUrl ?? null, expiresAt: cachedItem?.imageUrlExpiresAt ?? null }
+    : await getItemImageUrl(client, row.image_path);
+
   return {
     id: row.id,
     warehouseId: row.warehouse_id,
@@ -243,7 +267,9 @@ async function toWarehouseItem(client: NonNullable<typeof supabase>, row: Wareho
     name: row.name,
     unitType: row.unit_type,
     quantity: Number(row.quantity),
-    imageUrl: await getItemImageUrl(client, row.image_path),
+    imagePath: row.image_path,
+    imageUrl: image.url,
+    imageUrlExpiresAt: image.expiresAt,
     status: row.status,
     extractedAt: row.extracted_at,
     createdAt: row.created_at,
@@ -255,15 +281,15 @@ function toWarehouse(row: WarehouseRow): Warehouse {
   return { id: row.id, name: row.name, location: row.location, createdBy: row.created_by };
 }
 
-async function getItemImageUrl(client: NonNullable<typeof supabase>, imagePath: string | null): Promise<string | null> {
+async function getItemImageUrl(
+  client: NonNullable<typeof supabase>,
+  imagePath: string | null,
+): Promise<{ url: string | null; expiresAt: string | null }> {
   if (!imagePath) {
-    return null;
+    return { url: null, expiresAt: null };
   }
-  const { data, error } = await client.storage.from('warehouse-images').createSignedUrl(imagePath, 60 * 60 * 12);
-  if (error || !data?.signedUrl) {
-    return null;
-  }
-  return data.signedUrl;
+  const { data } = client.storage.from('warehouse-images').getPublicUrl(imagePath);
+  return { url: data.publicUrl || null, expiresAt: null };
 }
 
 function requireSupabase(): NonNullable<typeof supabase> {

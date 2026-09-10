@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type PropsWith
 import { AppState, Platform } from 'react-native';
 
 import { supabase } from '@/services/supabase';
-import { syncCurrentUserDirectoryProfile } from '@/services/user-directory';
+import { getDirectoryUsers, syncCurrentUserDirectoryProfile } from '@/services/user-directory';
 import { registerPushToken, unregisterPushToken } from '@/services/push-notifications';
 
 type AuthContextValue = {
@@ -29,6 +29,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setSession(data.session);
       if (data.session?.user) {
         void syncCurrentUserDirectoryProfile(data.session.user).catch(() => {});
+        void getDirectoryUsers().catch(() => {});
         void registerPushToken(data.session.user.id).catch(() => {});
       }
       setIsReady(true);
@@ -38,6 +39,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setSession(nextSession);
       if (nextSession?.user) {
         void syncCurrentUserDirectoryProfile(nextSession.user).catch(() => {});
+        void getDirectoryUsers().catch(() => {});
         void registerPushToken(nextSession.user.id).catch(() => {});
       }
       setIsReady(true);

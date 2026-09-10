@@ -14,6 +14,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "@/constants/theme";
 import { useAuth } from "@/contexts/auth-context";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import {
+  getCachedWarehouseInventory,
+  getWarehouseInventory,
+  subscribeToWarehouseInventory,
+} from "@/services/warehouse-inventory";
+import {
+  getCachedProducts,
+  getProducts,
+  subscribeToProductCatalog,
+} from "@/services/product-catalog";
 
 const tabIcons: Record<string, string> = {
   index: "home",
@@ -25,12 +35,47 @@ const tabIcons: Record<string, string> = {
 export default function AppTabs() {
   const { user } = useAuth();
   const [tabBounce, setTabBounce] = useState({ id: 0, route: "" });
+  const [warehouseItemCount, setWarehouseItemCount] = useState(0);
+  const [availableProductCount, setAvailableProductCount] = useState(0);
   const [symbolsLoaded] = useFonts({
     MaterialSymbols: MaterialSymbols_400Regular,
   });
   const scheme = useColorScheme();
   const colors = Colors[scheme];
   const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    if (!user) {
+      setWarehouseItemCount(0);
+      setAvailableProductCount(0);
+      return;
+    }
+
+    let isMounted = true;
+    const refreshWarehouseCount = () => {
+      void getWarehouseInventory()
+        .then(({ items }) => isMounted && setWarehouseItemCount(items.length))
+        .catch(() => {});
+    };
+    const refreshProductCount = () => {
+      void getProducts()
+        .then((products) => isMounted && setAvailableProductCount(products.filter((product) => product.isAvailable).length))
+        .catch(() => {});
+    };
+
+    void getCachedWarehouseInventory().then(({ items }) => isMounted && setWarehouseItemCount(items.length)).catch(() => {});
+    void getCachedProducts().then((products) => isMounted && setAvailableProductCount(products.filter((product) => product.isAvailable).length)).catch(() => {});
+    refreshWarehouseCount();
+    refreshProductCount();
+
+    const unsubscribeWarehouse = subscribeToWarehouseInventory(refreshWarehouseCount, () => {});
+    const unsubscribeProducts = subscribeToProductCatalog(refreshProductCount, () => {});
+    return () => {
+      isMounted = false;
+      unsubscribeWarehouse();
+      unsubscribeProducts();
+    };
+  }, [user]);
 
   return (
     <Tabs
@@ -74,6 +119,7 @@ export default function AppTabs() {
             primaryColor={colors.primary}
             symbolsLoaded={symbolsLoaded}
             bounceId={tabBounce.route === route.name ? tabBounce.id : 0}
+            badgeCount={route.name === "explore" ? warehouseItemCount : route.name === "products" ? availableProductCount : 0}
           />
         ),
       })}
@@ -93,6 +139,7 @@ function AnimatedTabIcon({
   primaryColor,
   symbolsLoaded,
   bounceId,
+  badgeCount,
 }: {
   color: ColorValue;
   focused: boolean;
@@ -100,6 +147,7 @@ function AnimatedTabIcon({
   primaryColor: string;
   symbolsLoaded: boolean;
   bounceId: number;
+  badgeCount: number;
 }) {
   const translateY = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(1)).current;
@@ -172,6 +220,28 @@ function AnimatedTabIcon({
           {symbolsLoaded ? icon : "•"}
         </Text>
       </View>
+      {badgeCount > 0 ? (
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>{badgeCount > 99 ? "99+" : badgeCount}</Text>
+        </View>
+      ) : null}
     </Animated.View>
   );
 }
+
+const styles = {
+  badge: {
+    alignItems: "center" as const,
+    backgroundColor: "#E05252",
+    borderColor: "#FFFFFF",
+    borderRadius: 10,
+    borderWidth: 1.5,
+    justifyContent: "center" as const,
+    minWidth: 18,
+    paddingHorizontal: 3,
+    position: "absolute" as const,
+    right: -9,
+    top: -6,
+  },
+  badgeText: { color: "#FFFFFF", fontSize: 9, fontWeight: "800" as const, lineHeight: 16 },
+};

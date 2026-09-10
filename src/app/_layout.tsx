@@ -32,6 +32,7 @@ function AppContent() {
                 <Stack.Screen name="(tabs)" />
                 <Stack.Screen name="profile" />
                 <Stack.Screen name="settings" />
+                <Stack.Screen name="suppliers" />
               </Stack>
             </ThemeProvider>
           </DatabaseProvider>

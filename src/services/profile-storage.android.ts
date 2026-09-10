@@ -1,7 +1,7 @@
 import { File, Paths } from 'expo-file-system';
 
 import { getDatabase } from '@/database/database';
-import { syncDirectoryProfileName } from '@/services/user-directory';
+import { syncDirectoryProfileDetails } from '@/services/user-directory';
 
 export type LocalProfile = {
   fullName: string;
@@ -69,7 +69,7 @@ export async function saveLocalProfile(userId: string, profile: LocalProfile): P
     profile.avatarUri,
     new Date().toISOString()
   );
-  void syncDirectoryProfileName(userId, profile.fullName).catch(() => {});
+  void syncDirectoryProfileDetails(userId, profile).catch(() => {});
 }
 
 export async function persistAvatar(userId: string, sourceUri: string): Promise<string> {

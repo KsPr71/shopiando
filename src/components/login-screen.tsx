@@ -101,7 +101,7 @@ export function LoginScreen() {
           >
             <View style={styles.hero}>
               <Image
-                source={require("@/../assets/images/icon.png")}
+                source={require("@/../assets/images/shopiando-logo-stylized.png")}
                 style={styles.heroLogo}
               />
               <ThemedText style={styles.brand}>Shopiando</ThemedText>

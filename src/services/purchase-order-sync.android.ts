@@ -2,6 +2,7 @@ import { getDatabase } from '@/database/database';
 import { syncOrderNotificationsToSupabase } from '@/services/order-notifications';
 import { notifyPurchaseSummaryChanged } from '@/services/purchase-summary';
 import { supabase } from '@/services/supabase';
+import { getDirectoryUsers } from '@/services/user-directory';
 
 type OrderRow = {
   id: string;
@@ -18,6 +19,7 @@ type ItemRow = {
   id: string;
   request_id: string;
   product_name: string;
+  supplier_name: string;
   unit: string;
   quantity: number;
   estimated_unit_price_cents: number;
@@ -43,6 +45,7 @@ type RemoteItem = {
   id: string;
   order_id: string;
   product_name: string;
+  supplier_name: string;
   unit: string;
   quantity: number;
   estimated_unit_price_cents: number;
@@ -68,8 +71,15 @@ export async function syncPurchaseOrderToSupabase(orderId: string): Promise<void
   if (!order) {
     return;
   }
+  const pendingSync = await database.getFirstAsync<{ order_id: string }>(
+    'SELECT order_id FROM purchase_order_sync_state WHERE order_id = ?',
+    orderId,
+  );
+  if (!pendingSync) {
+    return;
+  }
   const items = await database.getAllAsync<ItemRow>(
-    `SELECT id, request_id, product_name, unit, quantity,
+    `SELECT id, request_id, product_name, supplier_name, unit, quantity,
             estimated_unit_price_cents, actual_unit_price_cents, status,
             purchased_at, created_at, updated_at
      FROM purchase_request_items WHERE request_id = ?`,
@@ -100,6 +110,7 @@ export async function syncPurchaseOrderToSupabase(orderId: string): Promise<void
       id: item.id,
       order_id: item.request_id,
       product_name: item.product_name,
+      supplier_name: item.supplier_name,
       unit: item.unit,
       quantity: item.quantity,
       estimated_unit_price_cents: item.estimated_unit_price_cents,
@@ -116,10 +127,21 @@ export async function syncPurchaseOrderToSupabase(orderId: string): Promise<void
   if (savedItems.length !== items.length) {
     throw new Error('Supabase no confirmÃ³ todos los productos del pedido.');
   }
+  await database.runAsync('DELETE FROM purchase_order_sync_state WHERE order_id = ?', orderId);
   const { data: userData } = await supabase.auth.getUser();
   if (userData.user?.id === order.requester_id) {
     await syncOrderNotificationsToSupabase(orderId);
   }
+}
+
+export async function markPurchaseOrderForSync(orderId: string): Promise<void> {
+  const database = await getDatabase();
+  await database.runAsync(
+    `INSERT INTO purchase_order_sync_state (order_id, changed_at) VALUES (?, ?)
+     ON CONFLICT(order_id) DO UPDATE SET changed_at = excluded.changed_at`,
+    orderId,
+    new Date().toISOString(),
+  );
 }
 
 export async function syncPurchaseOrdersToSupabase(): Promise<void> {
@@ -127,7 +149,7 @@ export async function syncPurchaseOrdersToSupabase(): Promise<void> {
     return;
   }
   const database = await getDatabase();
-  const orders = await database.getAllAsync<{ id: string }>('SELECT id FROM purchase_requests');
+  const orders = await database.getAllAsync<{ id: string }>('SELECT order_id AS id FROM purchase_order_sync_state');
   for (const order of orders) {
     try {
       await syncPurchaseOrderToSupabase(order.id);
@@ -139,6 +161,7 @@ export async function syncPurchaseOrdersFromSupabase(userId: string): Promise<vo
   if (!supabase) {
     return;
   }
+  await getDirectoryUsers();
   const { data: remoteOrders, error: ordersError } = await supabase
     .from('purchase_orders')
     .select('id, requester_id, assignee_id, status, budget_total_cents, invoiced_total_cents, created_at, updated_at')
@@ -150,10 +173,20 @@ export async function syncPurchaseOrdersFromSupabase(userId: string): Promise<vo
   const orders = (remoteOrders ?? []) as RemoteOrder[];
   let remoteItems: RemoteItem[] = [];
   if (orders.length) {
-    const { data, error: itemsError } = await supabase
+    let { data, error: itemsError } = await supabase
       .from('purchase_order_items')
-      .select('id, order_id, product_name, unit, quantity, estimated_unit_price_cents, actual_unit_price_cents, status, purchased_at, created_at, updated_at')
+      .select('id, order_id, product_name, supplier_name, unit, quantity, estimated_unit_price_cents, actual_unit_price_cents, status, purchased_at, created_at, updated_at')
       .in('order_id', orders.map((order) => order.id));
+
+    if (itemsError?.message.includes('supplier_name')) {
+      const legacyResult = await supabase
+        .from('purchase_order_items')
+        .select('id, order_id, product_name, unit, quantity, estimated_unit_price_cents, actual_unit_price_cents, status, purchased_at, created_at, updated_at')
+        .in('order_id', orders.map((order) => order.id));
+      data = (legacyResult.data ?? []).map((item) => ({ ...item, supplier_name: '' }));
+      itemsError = legacyResult.error;
+    }
+
     if (itemsError) {
       throw new Error(itemsError.message);
     }
@@ -167,19 +200,29 @@ export async function syncPurchaseOrdersFromSupabase(userId: string): Promise<vo
     itemsByOrder.set(item.order_id, [...(itemsByOrder.get(item.order_id) ?? []), item]);
   }
   await database.withTransactionAsync(async () => {
-    const localOrders = await database.getAllAsync<{ id: string }>(
-      'SELECT id FROM purchase_requests WHERE requester_id = ? OR assignee_id = ?',
+    const localOrders = await database.getAllAsync<{ id: string; has_pending_sync: number }>(
+      `SELECT request.id, CASE WHEN sync_state.order_id IS NULL THEN 0 ELSE 1 END AS has_pending_sync
+       FROM purchase_requests AS request
+       LEFT JOIN purchase_order_sync_state AS sync_state ON sync_state.order_id = request.id
+       WHERE request.requester_id = ? OR request.assignee_id = ?`,
       userId,
       userId,
     );
     const remoteOrderIds = new Set(orders.map((order) => order.id));
     for (const localOrder of localOrders) {
-      if (!remoteOrderIds.has(localOrder.id)) {
+      if (!remoteOrderIds.has(localOrder.id) && !localOrder.has_pending_sync) {
         await database.runAsync('DELETE FROM purchase_request_items WHERE request_id = ?', localOrder.id);
         await database.runAsync('DELETE FROM purchase_requests WHERE id = ?', localOrder.id);
       }
     }
     for (const order of orders) {
+      const pendingSync = await database.getFirstAsync<{ order_id: string }>(
+        'SELECT order_id FROM purchase_order_sync_state WHERE order_id = ?',
+        order.id,
+      );
+      if (pendingSync) {
+        continue;
+      }
       const familyId = `family-${order.requester_id}`;
       await database.runAsync(
         `INSERT INTO families (id, name, created_at, updated_at) VALUES (?, 'Pedidos sincronizados', ?, ?)
@@ -208,15 +251,16 @@ export async function syncPurchaseOrdersFromSupabase(userId: string): Promise<vo
       for (const item of itemsByOrder.get(order.id) ?? []) {
         await database.runAsync(
           `INSERT INTO purchase_request_items (
-            id, request_id, product_id, product_name, unit, quantity, estimated_unit_price_cents,
+            id, request_id, product_id, product_name, supplier_name, unit, quantity, estimated_unit_price_cents,
             actual_unit_price_cents, status, purchased_at, delivered_at, created_at, updated_at
-          ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+          ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
           ON CONFLICT(id) DO UPDATE SET
-            product_name = excluded.product_name, unit = excluded.unit, quantity = excluded.quantity,
+            product_name = excluded.product_name, supplier_name = excluded.supplier_name,
+            unit = excluded.unit, quantity = excluded.quantity,
             estimated_unit_price_cents = excluded.estimated_unit_price_cents,
             actual_unit_price_cents = excluded.actual_unit_price_cents, status = excluded.status,
             purchased_at = excluded.purchased_at, updated_at = excluded.updated_at`,
-          item.id, item.order_id, item.product_name, item.unit, item.quantity,
+          item.id, item.order_id, item.product_name, item.supplier_name, item.unit, item.quantity,
           item.estimated_unit_price_cents, item.actual_unit_price_cents, item.status,
           item.purchased_at, item.created_at, item.updated_at,
         );
@@ -224,4 +268,23 @@ export async function syncPurchaseOrdersFromSupabase(userId: string): Promise<vo
     }
   });
   notifyPurchaseSummaryChanged();
+}
+
+export function subscribeToPurchaseOrders(userId: string, onChange: () => void): () => void {
+  if (!supabase) {
+    return () => {};
+  }
+  const client = supabase;
+  const channel = client
+    .channel(`purchase-orders:${userId}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'purchase_orders' }, () => {
+      void syncPurchaseOrdersFromSupabase(userId).then(onChange).catch(() => {});
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'purchase_order_items' }, () => {
+      void syncPurchaseOrdersFromSupabase(userId).then(onChange).catch(() => {});
+    })
+    .subscribe();
+  return () => {
+    void client.removeChannel(channel);
+  };
 }

@@ -15,6 +15,7 @@ export type OrderAssignee = {
 
 export type OrderLine = Pick<Product, 'id' | 'name' | 'unit' | 'priceCents'> & {
   quantity: number;
+  supplierName: string;
   lineTotalCents?: number;
 };
 

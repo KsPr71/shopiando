@@ -20,7 +20,7 @@
       "predictiveBackGestureEnabled": false,
       "googleServicesFile": "./google-services.json",
       "package": "com.novadevprojects.shopiando",
-      "versionCode": 2
+      "versionCode": 3
     },
     "web": {
       "output": "static",
@@ -48,7 +48,11 @@
         "expo-notifications",
         {
           "defaultChannel": "default",
-          "sounds": ["./assets/images/notification.wav"]
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#22A06B",
+          "sounds": [
+            "./assets/images/notification.wav"
+          ]
         }
       ],
       "expo-asset"

@@ -115,7 +115,7 @@ export function SideMenu({ visible, userEmail, onClose, onSignOut }: SideMenuPro
     };
   }, [user, visible]);
 
-  function navigate(path: '/' | '/explore' | '/products' | '/orders' | '/profile' | '/settings') {
+  function navigate(path: '/' | '/explore' | '/products' | '/orders' | '/profile' | '/settings' | '/suppliers') {
     router.replace(path);
     onClose();
   }
@@ -220,6 +220,13 @@ export function SideMenu({ visible, userEmail, onClose, onSignOut }: SideMenuPro
                   symbolsLoaded={symbolsLoaded}
                 />
                 <MenuItem
+                  active={pathname === '/suppliers'}
+                  icon="local_shipping"
+                  label="Proveedores"
+                  onPress={() => navigate('/suppliers')}
+                  symbolsLoaded={symbolsLoaded}
+                />
+                <MenuItem
                   active={pathname === '/orders'}
                   icon="receipt_long"
                   label="Mis pedidos"
@@ -287,11 +294,7 @@ const styles = StyleSheet.create({
   },
   panel: {
     height: '100%',
-    shadowColor: '#000000',
-    shadowOffset: { width: 4, height: 0 },
-    shadowOpacity: 0.24,
-    shadowRadius: 12,
-    elevation: 12,
+    boxShadow: '4px 0px 12px rgba(0, 0, 0, 0.24)',
   },
   safeArea: {
     flex: 1,

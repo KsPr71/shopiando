@@ -1,10 +1,11 @@
 import { getDatabase } from '@/database/database';
 import { notifyPurchaseSummaryChanged } from '@/services/purchase-summary';
-import { syncPurchaseOrderToSupabase } from '@/services/purchase-order-sync';
+import { markPurchaseOrderForSync, syncPurchaseOrderToSupabase } from '@/services/purchase-order-sync';
 
 export type AssignedPurchaseItem = {
   id: string;
   name: string;
+  supplierName: string;
   quantity: number;
   estimatedUnitPriceCents: number;
   actualUnitPriceCents: number | null;
@@ -30,6 +31,7 @@ type OrderItemRow = {
   invoiced_total_cents: number;
   item_id: string;
   product_name: string;
+  supplier_name: string;
   quantity: number;
   estimated_unit_price_cents: number;
   actual_unit_price_cents: number | null;
@@ -48,6 +50,7 @@ export async function getAssignedPurchaseOrders(userId: string): Promise<Assigne
        request.invoiced_total_cents,
        item.id AS item_id,
        item.product_name,
+       item.supplier_name,
        item.quantity,
        item.estimated_unit_price_cents,
        item.actual_unit_price_cents,
@@ -76,6 +79,7 @@ export async function getAssignedPurchaseOrders(userId: string): Promise<Assigne
     order.items.push({
       id: row.item_id,
       name: row.product_name,
+      supplierName: row.supplier_name || 'Sin proveedor',
       quantity: Number(row.quantity),
       estimatedUnitPriceCents: Number(row.estimated_unit_price_cents),
       actualUnitPriceCents: row.actual_unit_price_cents === null ? null : Number(row.actual_unit_price_cents),
@@ -125,6 +129,7 @@ export async function setPurchaseItemPurchased(orderId: string, itemId: string, 
       orderId,
     );
   });
+  await markPurchaseOrderForSync(orderId);
   notifyPurchaseSummaryChanged();
   void syncPurchaseOrderToSupabase(orderId).catch(() => {});
 }

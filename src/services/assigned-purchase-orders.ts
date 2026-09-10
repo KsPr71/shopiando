@@ -1,6 +1,7 @@
 export type AssignedPurchaseItem = {
   id: string;
   name: string;
+  supplierName: string;
   quantity: number;
   estimatedUnitPriceCents: number;
   actualUnitPriceCents: number | null;

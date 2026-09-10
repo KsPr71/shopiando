@@ -17,7 +17,9 @@ type WarehouseItemRow = {
   name: string;
   unit_type: WarehouseItem['unitType'];
   quantity: number;
+  image_path: string | null;
   image_url: string | null;
+  image_url_expires_at: string | null;
   status: WarehouseItem['status'];
   extracted_at: string | null;
   created_at: string;
@@ -41,7 +43,7 @@ export async function getCachedWarehouseItems(): Promise<WarehouseItem[]> {
     const database = await getDatabase();
     const rows = await database.getAllAsync<WarehouseItemRow>(`
       SELECT id, warehouse_id, warehouse_name, owner_id, owner_name, name, unit_type,
-             quantity, image_url, status, extracted_at, created_at, updated_at
+             quantity, image_path, image_url, image_url_expires_at, status, extracted_at, created_at, updated_at
       FROM warehouse_item_cache
       ORDER BY updated_at DESC
     `);
@@ -94,8 +96,8 @@ async function writeWarehouseItem(database: Awaited<ReturnType<typeof getDatabas
   await database.runAsync(
     `INSERT OR REPLACE INTO warehouse_item_cache (
       id, warehouse_id, warehouse_name, owner_id, owner_name, name, unit_type,
-      quantity, image_url, status, extracted_at, created_at, updated_at, synced_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      quantity, image_path, image_url, image_url_expires_at, status, extracted_at, created_at, updated_at, synced_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     item.id,
     item.warehouseId,
     item.warehouseName,
@@ -104,7 +106,9 @@ async function writeWarehouseItem(database: Awaited<ReturnType<typeof getDatabas
     item.name,
     item.unitType,
     item.quantity,
+    item.imagePath,
     item.imageUrl,
+    item.imageUrlExpiresAt,
     item.status,
     item.extractedAt,
     item.createdAt,
@@ -123,7 +127,9 @@ function toWarehouseItem(row: WarehouseItemRow): WarehouseItem {
     name: row.name,
     unitType: row.unit_type,
     quantity: Number(row.quantity),
+    imagePath: row.image_path,
     imageUrl: row.image_url,
+    imageUrlExpiresAt: row.image_url_expires_at,
     status: row.status,
     extractedAt: row.extracted_at,
     createdAt: row.created_at,

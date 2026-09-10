@@ -1,5 +1,4 @@
-import { Redirect } from 'expo-router';
-import { Image as ExpoImage } from 'expo-image';
+import { Redirect, useRouter } from 'expo-router';
 import { useFonts } from 'expo-font';
 import { MaterialSymbols_400Regular } from '@expo-google-fonts/material-symbols';
 import * as ImagePicker from 'expo-image-picker';
@@ -19,6 +18,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { SideMenu } from '@/components/side-menu';
+import { ImageZoomPreview } from '@/components/image-zoom-preview';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
@@ -47,10 +47,13 @@ import {
   type ProductCategoryOption,
   type ProductUnitType,
 } from '@/services/product-catalog';
+import { addSupplier, getSuppliers, type Supplier } from '@/services/suppliers';
+import { getUserBooleanPreference, setUserBooleanPreference } from '@/services/user-preferences';
 
 export default function ProductsScreen() {
   const [symbolsLoaded] = useFonts({ MaterialSymbols: MaterialSymbols_400Regular });
   const { isReady, user, signOut } = useAuth();
+  const router = useRouter();
   const theme = useTheme();
   const [isMenuVisible, setIsMenuVisible] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
@@ -60,6 +63,8 @@ export default function ProductsScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isAssigneeModalVisible, setIsAssigneeModalVisible] = useState(false);
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
+  const [isSupplierPickerVisible, setIsSupplierPickerVisible] = useState(false);
+  const [isNewSupplierVisible, setIsNewSupplierVisible] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [newName, setNewName] = useState('');
   const [newDescription, setNewDescription] = useState('');
@@ -67,10 +72,17 @@ export default function ProductsScreen() {
   const [newUnitType, setNewUnitType] = useState<ProductUnitType>('unit');
   const [newPackageQuantity, setNewPackageQuantity] = useState('1');
   const [newCategory, setNewCategory] = useState<ProductCategory>('carnicos');
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [newSupplierId, setNewSupplierId] = useState('');
+  const [supplierName, setSupplierName] = useState('');
+  const [supplierAddress, setSupplierAddress] = useState('');
+  const [supplierPhone, setSupplierPhone] = useState('');
   const [categories, setCategories] = useState<ProductCategoryOption[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<ProductCategory | 'all'>('all');
+  const [groupBySupplier, setGroupBySupplier] = useState(false);
   const [newImage, setNewImage] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [isSavingProduct, setIsSavingProduct] = useState(false);
+  const [isSavingSupplier, setIsSavingSupplier] = useState(false);
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const [catalogSyncStatus, setCatalogSyncStatus] = useState<'connecting' | 'live' | 'offline'>('connecting');
   const [message, setMessage] = useState<string | null>(null);
@@ -84,6 +96,13 @@ export default function ProductsScreen() {
     let isMounted = true;
     let hasCachedProducts = false;
     setIsLoading(true);
+    void getUserBooleanPreference(user.id, 'products.group_by_supplier')
+      .then((value) => {
+        if (isMounted) {
+          setGroupBySupplier(value);
+        }
+      })
+      .catch(() => {});
     void getCachedProducts()
       .then((cachedProducts) => {
         if (isMounted && cachedProducts.length) {
@@ -93,11 +112,12 @@ export default function ProductsScreen() {
         }
       })
       .catch(() => {});
-    Promise.all([getProducts(), getProductCategories(), loadProductCatalog(user.id, user.email, getDisplayName(user))])
-      .then(([catalogProducts, catalogCategories, { assignees: catalogAssignees }]) => {
+    Promise.all([getProducts(), getProductCategories(), getSuppliers(), loadProductCatalog(user.id, user.email, getDisplayName(user))])
+      .then(([catalogProducts, catalogCategories, catalogSuppliers, { assignees: catalogAssignees }]) => {
         if (isMounted) {
           setProducts(catalogProducts);
           setCategories(catalogCategories);
+          setSuppliers(catalogSuppliers);
           setNewCategory(catalogCategories[0]?.slug ?? PRODUCT_CATEGORIES[0]);
           setAssignees(catalogAssignees);
         }
@@ -137,6 +157,18 @@ export default function ProductsScreen() {
     };
   }, [user]);
 
+  function toggleGroupBySupplier() {
+    if (!user) {
+      return;
+    }
+
+    setGroupBySupplier((currentValue) => {
+      const nextValue = !currentValue;
+      void setUserBooleanPreference(user.id, 'products.group_by_supplier', nextValue).catch(() => {});
+      return nextValue;
+    });
+  }
+
   const orderLines = useMemo<OrderLine[]>(
     () => products
       .filter((product) => cart[product.id])
@@ -146,8 +178,9 @@ export default function ProductsScreen() {
         unit: product.unitType === 'pound' ? 'libra' : 'unidad',
         priceCents: product.priceCents,
         quantity: cart[product.id],
+        supplierName: suppliers.find((supplier) => supplier.id === product.supplierId)?.name ?? 'Sin proveedor',
       })),
-    [cart, products]
+    [cart, products, suppliers]
   );
   const totalCents = orderLines.reduce((total, line) => total + line.priceCents * line.quantity, 0);
   const cartCount = orderLines.reduce((total, line) => total + line.quantity, 0);
@@ -166,6 +199,13 @@ export default function ProductsScreen() {
     (canManageCatalog || product.isAvailable)
     && (selectedCategory === 'all' || product.category === selectedCategory)
   );
+  const productsForDisplay = groupBySupplier
+    ? [...visibleProducts].sort((first, second) => {
+      const firstSupplier = suppliers.find((supplier) => supplier.id === first.supplierId)?.name ?? 'Sin proveedor';
+      const secondSupplier = suppliers.find((supplier) => supplier.id === second.supplierId)?.name ?? 'Sin proveedor';
+      return firstSupplier.localeCompare(secondSupplier) || first.name.localeCompare(second.name);
+    })
+    : visibleProducts;
 
   function addProductToCart(product: Product) {
     setCart((currentCart) => {
@@ -215,22 +255,23 @@ export default function ProductsScreen() {
   async function saveProduct() {
     const priceCents = Math.round(Number(newPrice.replace(',', '.')) * 100);
     const packageQuantity = Number(newPackageQuantity.replace(',', '.'));
-    if (!newName.trim() || !newDescription.trim() || !Number.isFinite(priceCents) || priceCents < 0 || !Number.isFinite(packageQuantity) || packageQuantity <= 0) {
-      setError('Completa nombre, descripción y un precio válido.');
+    if (!newName.trim() || !newDescription.trim() || !newSupplierId || !Number.isFinite(priceCents) || priceCents < 0 || !Number.isFinite(packageQuantity) || packageQuantity <= 0) {
+      setError('Completa nombre, descripción, proveedor y un precio válido.');
       return;
     }
     setIsSavingProduct(true);
     setError(null);
     try {
       const product = editingProduct
-        ? await updateProduct(editingProduct.id, { name: newName, description: newDescription, category: newCategory, priceCents, unitType: newUnitType, packageQuantity })
-        : await addProduct({ name: newName, description: newDescription, category: newCategory, priceCents, unitType: newUnitType, packageQuantity, image: newImage });
+        ? await updateProduct(editingProduct.id, { name: newName, description: newDescription, category: newCategory, priceCents, unitType: newUnitType, packageQuantity, supplierId: newSupplierId })
+        : await addProduct({ name: newName, description: newDescription, category: newCategory, priceCents, unitType: newUnitType, packageQuantity, supplierId: newSupplierId, image: newImage });
       setProducts((currentProducts) => editingProduct ? currentProducts.map((item) => item.id === product.id ? product : item) : [product, ...currentProducts]);
       setNewName('');
       setNewDescription('');
       setNewPrice('');
       setNewPackageQuantity('1');
       setNewCategory('carnicos');
+      setNewSupplierId('');
       setNewUnitType('unit');
       setNewImage(null);
       setEditingProduct(null);
@@ -251,6 +292,7 @@ export default function ProductsScreen() {
     setNewPackageQuantity(String(product.packageQuantity));
     setNewUnitType(product.unitType);
     setNewCategory(product.category);
+    setNewSupplierId(product.supplierId ?? '');
     setNewImage(null);
     setError(null);
     setIsAddModalVisible(true);
@@ -264,9 +306,32 @@ export default function ProductsScreen() {
     setNewPackageQuantity('1');
     setNewUnitType('unit');
     setNewCategory(categories[0]?.slug ?? PRODUCT_CATEGORIES[0]);
+    setNewSupplierId('');
     setNewImage(null);
     setError(null);
     setIsAddModalVisible(true);
+  }
+
+  async function saveSupplier() {
+    if (!supplierName.trim()) {
+      setError('Indica el nombre del proveedor.');
+      return;
+    }
+    setIsSavingSupplier(true);
+    try {
+      const supplier = await addSupplier({ name: supplierName, address: supplierAddress, phone: supplierPhone });
+      setSuppliers((current) => [...current, supplier].sort((first, second) => first.name.localeCompare(second.name)));
+      setNewSupplierId(supplier.id);
+      setSupplierName('');
+      setSupplierAddress('');
+      setSupplierPhone('');
+      setIsNewSupplierVisible(false);
+      setMessage('Proveedor añadido.');
+    } catch (supplierError) {
+      setError(supplierError instanceof Error ? supplierError.message : 'No se pudo añadir el proveedor.');
+    } finally {
+      setIsSavingSupplier(false);
+    }
   }
 
   function confirmDeleteProduct(product: Product) {
@@ -332,7 +397,7 @@ export default function ProductsScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView edges={['top']} style={styles.safeArea}>
         <View style={styles.topBar}>
           <Pressable
             accessibilityLabel="Abrir menú"
@@ -360,7 +425,7 @@ export default function ProductsScreen() {
           </Pressable>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} style={styles.productScroll}>
           <ScrollView horizontal contentContainerStyle={styles.categoryCarousel} showsHorizontalScrollIndicator={false} style={styles.categoryCarouselContainer}>
             <Pressable onPress={() => setSelectedCategory('all')} style={[styles.filterChip, { borderColor: theme.primary }, selectedCategory === 'all' && { backgroundColor: theme.primary }]}>
               <ThemedText style={[styles.filterChipText, selectedCategory === 'all' && styles.filterChipTextSelected]}>Todos</ThemedText>
@@ -371,15 +436,33 @@ export default function ProductsScreen() {
               </Pressable>
             ))}
           </ScrollView>
+          <Pressable
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: groupBySupplier }}
+            onPress={toggleGroupBySupplier}
+            style={styles.groupBySupplierControl}
+          >
+            <View style={[styles.groupCheckbox, { borderColor: groupBySupplier ? theme.primary : theme.textSecondary, backgroundColor: groupBySupplier ? theme.primary : 'transparent' }]}>
+              <ThemedText style={styles.groupCheckboxIcon}>{groupBySupplier ? '✓' : ''}</ThemedText>
+            </View>
+            <ThemedText themeColor="textSecondary" style={styles.groupBySupplierText}>Agrupar por proveedor</ThemedText>
+          </Pressable>
           {isLoading ? (
             <View style={styles.centered}><ActivityIndicator /></View>
           ) : (
             <View style={styles.productGrid}>
-              {visibleProducts.map((product) => {
+              {(() => {
+                let previousSupplierName: string | null = null;
+                return productsForDisplay.map((product) => {
                 const quantity = cart[product.id] ?? 0;
                 const isExpanded = expandedProducts[product.id] ?? false;
+                const supplierName = suppliers.find((supplier) => supplier.id === product.supplierId)?.name ?? 'Sin proveedor';
+                const showSupplierHeading = groupBySupplier && supplierName !== previousSupplierName;
+                previousSupplierName = supplierName;
                 return (
-                  <ThemedView key={product.id} type="backgroundElement" style={[styles.productCard, !product.isAvailable && styles.inactiveProduct]}>
+                  <View key={product.id}>
+                    {showSupplierHeading ? <ThemedText style={[styles.supplierGroupTitle, { color: theme.primary }]}>{supplierName}</ThemedText> : null}
+                  <ThemedView type="backgroundElement" style={[styles.productCard, !product.isAvailable && styles.inactiveProduct]}>
                     <ProductImage category={product.category} sourceUri={product.imageUrl} />
                     <View style={styles.productBody}>
                       <View style={styles.productHeader}>
@@ -424,8 +507,10 @@ export default function ProductsScreen() {
                       </View>
                     </View>
                   </ThemedView>
+                  </View>
                 );
-              })}
+              });
+              })()}
             </View>
           )}
           {!isLoading && !visibleProducts.length ? <ThemedText themeColor="textSecondary" style={styles.emptyState}>No hay productos disponibles en esta categoría.</ThemedText> : null}
@@ -490,6 +575,15 @@ export default function ProductsScreen() {
             </Pressable>
             <TextInput value={newName} onChangeText={setNewName} placeholder="Nombre" placeholderTextColor={theme.textSecondary} style={[styles.formInput, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]} />
             <TextInput value={newDescription} onChangeText={setNewDescription} placeholder="Descripción" multiline placeholderTextColor={theme.textSecondary} style={[styles.formInput, styles.descriptionInput, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]} />
+            <View style={styles.supplierRow}>
+              <Pressable onPress={() => setIsSupplierPickerVisible(true)} style={[styles.supplierPicker, { backgroundColor: theme.background, borderColor: theme.backgroundSelected }]}>
+                <ThemedText style={[styles.supplierPickerText, { color: newSupplierId ? theme.text : theme.textSecondary }]}>{suppliers.find((supplier) => supplier.id === newSupplierId)?.name ?? 'Seleccionar proveedor'}</ThemedText>
+                <ThemedText style={[styles.supplierPickerIcon, { color: theme.textSecondary }]}>{symbolsLoaded ? 'expand_more' : '⌄'}</ThemedText>
+              </Pressable>
+              <Pressable accessibilityLabel="Añadir proveedor" onPress={() => setIsNewSupplierVisible(true)} style={[styles.newSupplierButton, { borderColor: theme.primary }]}>
+                <ThemedText style={[styles.newSupplierButtonText, { color: theme.primary }]}>+ Nuevo</ThemedText>
+              </Pressable>
+            </View>
             <TextInput value={newPrice} onChangeText={setNewPrice} placeholder="Precio total" keyboardType="decimal-pad" placeholderTextColor={theme.textSecondary} style={[styles.formInput, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]} />
             <View style={styles.unitToggleRow}>
               <TextInput value={newPackageQuantity} onChangeText={setNewPackageQuantity} keyboardType="decimal-pad" placeholder="Cantidad" placeholderTextColor={theme.textSecondary} style={[styles.packageInput, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]} />
@@ -510,6 +604,31 @@ export default function ProductsScreen() {
           </ThemedView>
         </View>
       </Modal>
+      <Modal transparent animationType="fade" visible={isSupplierPickerVisible} onRequestClose={() => setIsSupplierPickerVisible(false)}>
+        <View style={styles.modalBackdrop}>
+          <ThemedView type="backgroundElement" style={styles.assigneeModal}>
+            <ThemedText style={styles.assigneeTitle}>Seleccionar proveedor</ThemedText>
+            <ScrollView contentContainerStyle={styles.supplierList}>
+              {suppliers.map((supplier) => <Pressable key={supplier.id} onPress={() => { setNewSupplierId(supplier.id); setIsSupplierPickerVisible(false); }} style={[styles.supplierOption, { borderColor: theme.backgroundSelected }, supplier.id === newSupplierId && { borderColor: theme.primary }]}><ThemedText style={styles.supplierOptionName}>{supplier.name}</ThemedText><ThemedText themeColor="textSecondary" style={styles.supplierOptionDetail}>{supplier.phone || supplier.address || 'Sin datos adicionales'}</ThemedText></Pressable>)}
+            </ScrollView>
+            <Pressable onPress={() => { setIsSupplierPickerVisible(false); setIsNewSupplierVisible(true); }} style={styles.cancelButton}><ThemedText style={[styles.cancelButtonText, { color: theme.primary }]}>Añadir proveedor nuevo</ThemedText></Pressable>
+            <Pressable onPress={() => setIsSupplierPickerVisible(false)} style={styles.cancelButton}><ThemedText themeColor="info" style={styles.cancelButtonText}>Cancelar</ThemedText></Pressable>
+          </ThemedView>
+        </View>
+      </Modal>
+      <Modal transparent animationType="slide" visible={isNewSupplierVisible} onRequestClose={() => setIsNewSupplierVisible(false)}>
+        <View style={styles.modalBackdrop}>
+          <ThemedView type="backgroundElement" style={styles.assigneeModal}>
+            <ThemedText style={styles.assigneeTitle}>Nuevo proveedor</ThemedText>
+            <TextInput value={supplierName} onChangeText={setSupplierName} placeholder="Nombre" placeholderTextColor={theme.textSecondary} style={[styles.formInput, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]} />
+            <TextInput value={supplierAddress} onChangeText={setSupplierAddress} placeholder="Dirección" placeholderTextColor={theme.textSecondary} style={[styles.formInput, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]} />
+            <TextInput value={supplierPhone} onChangeText={setSupplierPhone} placeholder="Teléfono" keyboardType="phone-pad" placeholderTextColor={theme.textSecondary} style={[styles.formInput, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]} />
+            <Pressable disabled={isSavingSupplier} onPress={saveSupplier} style={[styles.checkoutButton, { backgroundColor: theme.primary }, isSavingSupplier && styles.disabled]}>{isSavingSupplier ? <ActivityIndicator color="#FFFFFF" /> : <ThemedText style={styles.checkoutButtonText}>Guardar proveedor</ThemedText>}</Pressable>
+            <Pressable onPress={() => router.push('/suppliers')} style={styles.cancelButton}><ThemedText themeColor="textSecondary" style={styles.cancelButtonText}>Gestionar proveedores</ThemedText></Pressable>
+            <Pressable disabled={isSavingSupplier} onPress={() => setIsNewSupplierVisible(false)} style={styles.cancelButton}><ThemedText themeColor="info" style={styles.cancelButtonText}>Cancelar</ThemedText></Pressable>
+          </ThemedView>
+        </View>
+      </Modal>
     </ThemedView>
   );
 }
@@ -521,7 +640,7 @@ function ProductImage({ category, sourceUri }: { category: string; sourceUri: st
     return <View style={styles.imageFallback}><ThemedText style={styles.imageFallbackText}>{category[0]?.toUpperCase()}</ThemedText></View>;
   }
 
-  return <ExpoImage cachePolicy="memory-disk" contentFit="cover" onError={() => setHasFailed(true)} source={{ uri: sourceUri }} style={styles.productImage} transition={150} />;
+  return <ImageZoomPreview accessibilityLabel="Ampliar imagen del producto" onError={() => setHasFailed(true)} sourceUri={sourceUri} style={styles.productImage} />;
 }
 
 function getDisplayName(user: NonNullable<ReturnType<typeof useAuth>['user']>) {
@@ -563,14 +682,20 @@ const styles = StyleSheet.create({
   addCatalogButton: { alignItems: 'center', borderRadius: 18, height: 36, justifyContent: 'center', width: 36 },
   addCatalogButtonText: { color: '#FFFFFF', fontSize: 24, lineHeight: 26 },
   content: { alignSelf: 'center', flexGrow: 1, maxWidth: MaxContentWidth, padding: Spacing.three, paddingBottom: Spacing.four, width: '100%' },
+  productScroll: { flex: 1 },
   productGrid: { gap: Spacing.two },
   categoryCarouselContainer: { flexGrow: 0, flexShrink: 0, height: 42, marginBottom: Spacing.two },
   categoryCarousel: { alignItems: 'center', gap: Spacing.one, paddingHorizontal: 1 },
+  groupBySupplierControl: { alignItems: 'center', alignSelf: 'flex-start', flexDirection: 'row', gap: Spacing.one, marginBottom: Spacing.two, paddingVertical: Spacing.one },
+  groupCheckbox: { alignItems: 'center', borderRadius: 4, borderWidth: 1.5, height: 18, justifyContent: 'center', width: 18 },
+  groupCheckboxIcon: { color: '#FFFFFF', fontSize: 13, fontWeight: '900', lineHeight: 15 },
+  groupBySupplierText: { fontSize: 12, fontWeight: '700' },
+  supplierGroupTitle: { fontSize: 13, fontWeight: '800', marginBottom: Spacing.one, marginTop: Spacing.one },
   filterChip: { borderRadius: 16, borderWidth: 1, paddingHorizontal: Spacing.two, paddingVertical: Spacing.one },
   filterChipText: { fontSize: 12, fontWeight: '700' },
   filterChipTextSelected: { color: '#FFFFFF' },
   emptyState: { paddingVertical: Spacing.four, textAlign: 'center' },
-  productCard: { alignItems: 'center', backgroundColor: '#FFFFFF', borderColor: '#EAE6DF', borderRadius: Spacing.three, borderWidth: StyleSheet.hairlineWidth, elevation: 1, flexDirection: 'row', minHeight: 120, padding: Spacing.two, shadowColor: '#000000', shadowOpacity: 0.04, shadowRadius: 4 },
+  productCard: { alignItems: 'center', backgroundColor: '#FFFFFF', borderColor: '#EAE6DF', borderRadius: Spacing.three, borderWidth: StyleSheet.hairlineWidth, boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.04)', flexDirection: 'row', minHeight: 120, padding: Spacing.two },
   productImage: { borderRadius: Spacing.two, height: 96, width: 96 },
   imageFallback: { alignItems: 'center', backgroundColor: '#EEF1F3', borderRadius: Spacing.two, height: 96, justifyContent: 'center', width: 96 },
   imageFallbackText: { color: '#208AEF', fontSize: 26, fontWeight: '800' },
@@ -606,6 +731,16 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.45 },
   pressed: { opacity: 0.86 },
   modalBackdrop: { alignItems: 'center', backgroundColor: 'rgba(0, 0, 0, 0.42)', flex: 1, justifyContent: 'center', padding: Spacing.four },
+  supplierRow: { flexDirection: 'row', gap: Spacing.two },
+  supplierPicker: { alignItems: 'center', borderRadius: Spacing.two, borderWidth: 1, flex: 1, flexDirection: 'row', justifyContent: 'space-between', minHeight: 50, paddingHorizontal: Spacing.three },
+  supplierPickerText: { flex: 1, fontSize: 14, fontWeight: '600' },
+  supplierPickerIcon: { fontFamily: 'MaterialSymbols', fontSize: 22, lineHeight: 24, textAlign: 'center' },
+  newSupplierButton: { alignItems: 'center', borderRadius: Spacing.two, borderWidth: 1, justifyContent: 'center', minWidth: 76, paddingHorizontal: Spacing.two },
+  newSupplierButtonText: { fontSize: 13, fontWeight: '800' },
+  supplierList: { gap: Spacing.two },
+  supplierOption: { borderRadius: Spacing.two, borderWidth: 1, gap: 2, padding: Spacing.three },
+  supplierOptionName: { fontSize: 15, fontWeight: '800' },
+  supplierOptionDetail: { fontSize: 12 },
   assigneeModal: { borderRadius: Spacing.four, gap: Spacing.three, maxWidth: 420, padding: Spacing.four, width: '100%' },
   assigneeTitle: { fontSize: 21, fontWeight: '800' },
   assigneeCopy: { fontSize: 14, lineHeight: 20 },

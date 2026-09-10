@@ -62,6 +62,35 @@ export async function markOrderNotificationsRead(userId: string): Promise<void> 
   const database = await getDatabase();
   const now = new Date().toISOString();
   await database.runAsync('UPDATE order_notifications SET read_at = ? WHERE recipient_id = ? AND read_at IS NULL', now, userId);
+
+  if (supabase) {
+    const { error } = await supabase
+      .from('purchase_order_notifications')
+      .update({ read_at: now })
+      .eq('recipient_id', userId)
+      .is('read_at', null);
+
+    if (error && !isNotificationsTableUnavailable(error.message)) {
+      throw new Error(error.message);
+    }
+  }
+
+  notifyListeners();
+}
+
+export async function clearReadOrderNotifications(userId: string): Promise<void> {
+  if (supabase) {
+    const { error } = await supabase
+      .from('purchase_order_notifications')
+      .delete()
+      .eq('recipient_id', userId)
+      .not('read_at', 'is', null);
+    if (error && !isNotificationsTableUnavailable(error.message)) {
+      throw new Error(error.message);
+    }
+  }
+  const database = await getDatabase();
+  await database.runAsync('DELETE FROM order_notifications WHERE recipient_id = ? AND read_at IS NOT NULL', userId);
   notifyListeners();
 }
 
@@ -111,6 +140,17 @@ export async function syncOrderNotificationsFromSupabase(userId: string): Promis
       notification.body, notification.created_at, notification.read_at,
     );
   }
+  const remoteIds = (data ?? []).map((notification) => notification.id);
+  if (remoteIds.length === 0) {
+    await database.runAsync('DELETE FROM order_notifications WHERE recipient_id = ?', userId);
+  } else {
+    const placeholders = remoteIds.map(() => '?').join(', ');
+    await database.runAsync(
+      `DELETE FROM order_notifications WHERE recipient_id = ? AND id NOT IN (${placeholders})`,
+      userId,
+      ...remoteIds,
+    );
+  }
   notifyListeners();
 }
 
@@ -122,7 +162,7 @@ export function subscribeToOrderNotifications(userId: string, onNotification: ()
   }
   const channel = client
     .channel(`purchase-order-notifications:${userId}`)
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'purchase_order_notifications', filter: `recipient_id=eq.${userId}` }, () => {
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'purchase_order_notifications', filter: `recipient_id=eq.${userId}` }, () => {
       void syncOrderNotificationsFromSupabase(userId).then(onNotification).catch(() => {});
     })
     .subscribe();

@@ -12,7 +12,7 @@ import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useAuth } from '@/contexts/auth-context';
 import { useTheme } from '@/hooks/use-theme';
 import { getAssignedPurchaseOrderHistory, getPurchaseOrderHistory, type PurchaseHistoryOrder } from '@/services/purchase-order-history';
-import { syncPurchaseOrdersFromSupabase } from '@/services/purchase-order-sync';
+import { syncPurchaseOrdersFromSupabase, syncPurchaseOrdersToSupabase } from '@/services/purchase-order-sync';
 import { subscribeToPurchaseSummaryChanges } from '@/services/purchase-summary';
 import { getDirectoryUsers } from '@/services/user-directory';
 
@@ -36,6 +36,7 @@ export default function OrdersScreen() {
     setIsSyncing(true);
     setSyncStatus('pending');
     try {
+      await syncPurchaseOrdersToSupabase();
       await syncPurchaseOrdersFromSupabase(user.id);
       setSyncStatus('synced');
     } catch {
@@ -160,6 +161,7 @@ export default function OrdersScreen() {
                       {order.items.map((item) => <View key={item.id} style={styles.itemRow}>
                         <View style={styles.itemInfo}>
                           <ThemedText style={styles.itemName}>{item.name}</ThemedText>
+                          <ThemedText themeColor="textSecondary" style={styles.itemSupplier}>{item.supplierName}</ThemedText>
                           <ThemedText themeColor="textSecondary" style={styles.itemQuantity}>{formatQuantity(item.quantity)} unidades</ThemedText>
                         </View>
                         <ThemedText themeColor="textSecondary" style={styles.itemPrice}>{formatPrice(item.estimatedUnitPriceCents * item.quantity)}</ThemedText>
@@ -237,6 +239,7 @@ const styles = StyleSheet.create({
   itemRow: { alignItems: 'center', flexDirection: 'row', minHeight: 36 },
   itemInfo: { flex: 1 },
   itemName: { fontSize: 13, fontWeight: '700' },
+  itemSupplier: { fontSize: 11, marginTop: 1 },
   itemQuantity: { fontSize: 11, marginTop: 1 },
   itemPrice: { fontSize: 12, fontWeight: '700' },
   totalsRow: { alignItems: 'center', borderTopWidth: StyleSheet.hairlineWidth, flexDirection: 'row', justifyContent: 'space-between', marginTop: Spacing.one, paddingTop: Spacing.two },

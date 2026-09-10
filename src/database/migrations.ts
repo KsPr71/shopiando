@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-const DATABASE_VERSION = 10;
+const DATABASE_VERSION = 15;
 
 /** Creates the local, offline-first data store. Monetary values are integer cents. */
 export async function migrateDatabase(database: SQLiteDatabase): Promise<void> {
@@ -251,6 +251,58 @@ export async function migrateDatabase(database: SQLiteDatabase): Promise<void> {
       await database.execAsync("ALTER TABLE warehouse_item_cache ADD COLUMN created_at TEXT NOT NULL DEFAULT ''");
     }
     version = 10;
+  }
+
+  if (version === 10) {
+    await database.execAsync(`
+      CREATE TABLE IF NOT EXISTS purchase_order_sync_state (
+        order_id TEXT PRIMARY KEY NOT NULL REFERENCES purchase_requests(id) ON DELETE CASCADE,
+        changed_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS purchase_order_sync_state_by_changed_at
+        ON purchase_order_sync_state(changed_at);
+    `);
+    version = 11;
+  }
+
+  if (version === 11) {
+    const columns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(product_catalog_cache)');
+    if (!columns.some((column) => column.name === 'supplier_id')) {
+      await database.execAsync('ALTER TABLE product_catalog_cache ADD COLUMN supplier_id TEXT');
+    }
+    version = 12;
+  }
+
+  if (version === 12) {
+    const columns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(purchase_request_items)');
+    if (!columns.some((column) => column.name === 'supplier_name')) {
+      await database.execAsync("ALTER TABLE purchase_request_items ADD COLUMN supplier_name TEXT NOT NULL DEFAULT ''");
+    }
+    version = 13;
+  }
+
+  if (version === 13) {
+    const columns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(warehouse_item_cache)');
+    if (!columns.some((column) => column.name === 'image_path')) {
+      await database.execAsync('ALTER TABLE warehouse_item_cache ADD COLUMN image_path TEXT');
+    }
+    if (!columns.some((column) => column.name === 'image_url_expires_at')) {
+      await database.execAsync('ALTER TABLE warehouse_item_cache ADD COLUMN image_url_expires_at TEXT');
+    }
+    version = 14;
+  }
+
+  if (version === 14) {
+    await database.execAsync(`
+      CREATE TABLE IF NOT EXISTS user_preferences (
+        user_id TEXT NOT NULL,
+        preference_key TEXT NOT NULL,
+        preference_value TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, preference_key)
+      );
+    `);
+    version = 15;
   }
 
   await database.execAsync(`PRAGMA user_version = ${version}`);

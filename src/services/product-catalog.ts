@@ -10,6 +10,7 @@ import {
 } from '@/services/product-catalog-cache';
 import { supabase } from '@/services/supabase';
 import { notifyProductCreated } from '@/services/push-notifications';
+import { optimizeImageForUpload } from '@/services/image-upload';
 
 export const PRODUCT_CATEGORIES = ['carnicos', 'vegetales', 'viandas', 'legumbres'] as const;
 export type ProductCategory = string;
@@ -22,6 +23,7 @@ export type ProductCategoryOption = {
 export type Product = {
   id: string;
   ownerId: string;
+  supplierId: string | null;
   name: string;
   description: string;
   category: ProductCategory;
@@ -41,6 +43,7 @@ const catalogListeners = new Set<(change: ProductCatalogChange) => void>();
 type ProductRow = {
   id: string;
   owner_id: string;
+  supplier_id: string | null;
   name: string;
   description: string;
   category: ProductCategory;
@@ -70,7 +73,7 @@ export async function getProducts(): Promise<Product[]> {
 
   const { data, error } = await client
     .from('products')
-    .select('id, owner_id, name, description, category, price_cents, unit_type, package_quantity, is_available, image_path')
+    .select('id, owner_id, supplier_id, name, description, category, price_cents, unit_type, package_quantity, is_available, image_path')
     .order('created_at', { ascending: false });
   if (error) {
     throw error;
@@ -92,6 +95,7 @@ export async function addProduct(input: {
   priceCents: number;
   unitType: ProductUnitType;
   packageQuantity: number;
+  supplierId: string;
   image: ImagePicker.ImagePickerAsset | null;
 }): Promise<Product> {
   if (!supabase) {
@@ -109,12 +113,12 @@ export async function addProduct(input: {
 
   let imagePath: string | null = null;
   if (input.image) {
-    const extension = input.image.mimeType?.split('/')[1] ?? 'jpg';
-    imagePath = `${userData.user.id}/${Date.now()}.${extension.replace(/[^a-z0-9]/gi, '')}`;
-    const image = await new File(input.image.uri).arrayBuffer();
+    const image = await optimizeImageForUpload(input.image);
+    imagePath = `${userData.user.id}/${Date.now()}.${image.extension}`;
+    const content = await new File(image.uri).arrayBuffer();
     const { error: uploadError } = await client.storage
       .from('product-images')
-      .upload(imagePath, image, { contentType: input.image.mimeType ?? 'image/jpeg' });
+      .upload(imagePath, content, { contentType: image.contentType });
     if (uploadError) {
       throw uploadError;
     }
@@ -124,6 +128,7 @@ export async function addProduct(input: {
     .from('products')
     .insert({
       owner_id: userData.user.id,
+      supplier_id: input.supplierId,
       name: input.name.trim(),
       description: input.description.trim(),
       category: input.category,
@@ -132,7 +137,7 @@ export async function addProduct(input: {
       package_quantity: input.packageQuantity,
       image_path: imagePath,
     })
-    .select('id, owner_id, name, description, category, price_cents, unit_type, package_quantity, is_available, image_path')
+    .select('id, owner_id, supplier_id, name, description, category, price_cents, unit_type, package_quantity, is_available, image_path')
     .single();
   if (error) {
     throw error;
@@ -154,6 +159,7 @@ export async function updateProduct(productId: string, input: {
   priceCents: number;
   unitType: ProductUnitType;
   packageQuantity: number;
+  supplierId: string;
 }): Promise<Product> {
   if (!supabase) {
     throw new Error('Configura Supabase para editar productos.');
@@ -168,9 +174,10 @@ export async function updateProduct(productId: string, input: {
       price_cents: input.priceCents,
       unit_type: input.unitType,
       package_quantity: input.packageQuantity,
+      supplier_id: input.supplierId,
     })
     .eq('id', productId)
-    .select('id, owner_id, name, description, category, price_cents, unit_type, package_quantity, is_available, image_path')
+    .select('id, owner_id, supplier_id, name, description, category, price_cents, unit_type, package_quantity, is_available, image_path')
     .single();
   if (error) {
     throw error;
@@ -255,7 +262,7 @@ export function subscribeToProductCatalog(
 
       const { data, error } = await client
         .from('products')
-        .select('id, owner_id, name, description, category, price_cents, unit_type, package_quantity, is_available, image_path')
+        .select('id, owner_id, supplier_id, name, description, category, price_cents, unit_type, package_quantity, is_available, image_path')
         .eq('id', productId)
         .single();
       if (error || !data) {
@@ -315,6 +322,7 @@ async function toProduct(client: NonNullable<typeof supabase>, product: ProductR
   return {
     id: product.id,
     ownerId: product.owner_id,
+    supplierId: product.supplier_id,
     name: product.name,
     description: product.description,
     category: product.category,
