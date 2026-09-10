@@ -20,7 +20,7 @@
       "predictiveBackGestureEnabled": false,
       "googleServicesFile": "./google-services.json",
       "package": "com.novadevprojects.shopiando",
-      "versionCode": 3
+      "versionCode": 4
     },
     "web": {
       "output": "static",
