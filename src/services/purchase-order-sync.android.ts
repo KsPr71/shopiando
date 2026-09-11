@@ -1,5 +1,6 @@
 import { getDatabase } from '@/database/database';
-import { syncOrderNotificationsToSupabase } from '@/services/order-notifications';
+import { createOrderCompletionNotification, syncOrderNotificationsToSupabase } from '@/services/order-notifications';
+import { notifyPurchaseOrderCompleted } from '@/services/push-notifications';
 import { notifyPurchaseSummaryChanged } from '@/services/purchase-summary';
 import { supabase } from '@/services/supabase';
 import { getDirectoryUsers } from '@/services/user-directory';
@@ -61,6 +62,11 @@ export async function syncPurchaseOrderToSupabase(orderId: string): Promise<void
     throw new Error('Supabase no está configurado en esta compilación.');
   }
 
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userError || !userData.user) {
+    throw new Error(userError?.message ?? 'Inicia sesión para sincronizar el pedido.');
+  }
+
   const database = await getDatabase();
   const order = await database.getFirstAsync<OrderRow>(
     `SELECT id, requester_id, assignee_id, status, budget_total_cents,
@@ -85,6 +91,23 @@ export async function syncPurchaseOrderToSupabase(orderId: string): Promise<void
      FROM purchase_request_items WHERE request_id = ?`,
     orderId,
   );
+
+  if (userData.user.id !== order.requester_id) {
+    await updateExistingPurchaseOrder(order, items);
+    await database.runAsync('DELETE FROM purchase_order_sync_state WHERE order_id = ?', orderId);
+    await syncOrderNotificationsToSupabase(orderId).catch((error) => {
+      console.warn('No se pudo sincronizar la notificación del pedido.', error);
+    });
+    if (order.status === 'delivered') {
+      try {
+        await notifyPurchaseOrderCompleted(orderId);
+        console.info('[Notificaciones] Solicitud de pedido completado enviada.', { orderId });
+      } catch (error) {
+        console.warn('No se pudo enviar la notificación de pedido completado.', error);
+      }
+    }
+    return;
+  }
 
   const { data: savedOrder, error: orderError } = await supabase
     .from('purchase_orders')
@@ -128,9 +151,50 @@ export async function syncPurchaseOrderToSupabase(orderId: string): Promise<void
     throw new Error('Supabase no confirmÃ³ todos los productos del pedido.');
   }
   await database.runAsync('DELETE FROM purchase_order_sync_state WHERE order_id = ?', orderId);
-  const { data: userData } = await supabase.auth.getUser();
-  if (userData.user?.id === order.requester_id) {
-    await syncOrderNotificationsToSupabase(orderId);
+  await syncOrderNotificationsToSupabase(orderId);
+}
+
+async function updateExistingPurchaseOrder(order: OrderRow, items: ItemRow[]): Promise<void> {
+  if (!supabase) {
+    throw new Error('Supabase no está configurado.');
+  }
+  const client = supabase;
+
+  const { data: savedOrder, error: orderError } = await client
+    .from('purchase_orders')
+    .update({
+      status: order.status,
+      budget_total_cents: order.budget_total_cents,
+      invoiced_total_cents: order.invoiced_total_cents,
+      updated_at: order.updated_at,
+    })
+    .eq('id', order.id)
+    .select('id, status, updated_at')
+    .single();
+  if (orderError || !savedOrder?.id || savedOrder.status !== order.status || savedOrder.updated_at !== order.updated_at) {
+    throw new Error(orderError?.message ?? 'Supabase no confirmó la actualización del pedido.');
+  }
+
+  const updates = await Promise.all(items.map((item) => client
+    .from('purchase_order_items')
+    .update({
+      product_name: item.product_name,
+      supplier_name: item.supplier_name,
+      unit: item.unit,
+      quantity: item.quantity,
+      estimated_unit_price_cents: item.estimated_unit_price_cents,
+      actual_unit_price_cents: item.actual_unit_price_cents,
+      status: item.status,
+      purchased_at: item.purchased_at,
+      updated_at: item.updated_at,
+    })
+    .eq('id', item.id)
+    .eq('order_id', item.request_id)
+    .select('id, status, updated_at')
+    .single()));
+  const failedUpdate = updates.find((result) => result.error || !result.data?.id);
+  if (failedUpdate) {
+    throw new Error(failedUpdate.error?.message ?? 'Supabase no confirmó los productos del pedido.');
   }
 }
 
@@ -199,15 +263,18 @@ export async function syncPurchaseOrdersFromSupabase(userId: string): Promise<vo
   for (const item of remoteItems) {
     itemsByOrder.set(item.order_id, [...(itemsByOrder.get(item.order_id) ?? []), item]);
   }
+  const completedOrderIds: string[] = [];
   await database.withExclusiveTransactionAsync(async (transaction) => {
-    const localOrders = await transaction.getAllAsync<{ id: string; has_pending_sync: number }>(
-      `SELECT request.id, CASE WHEN sync_state.order_id IS NULL THEN 0 ELSE 1 END AS has_pending_sync
+    const localOrders = await transaction.getAllAsync<{ id: string; status: string; has_pending_sync: number }>(
+      `SELECT request.id, request.status,
+              CASE WHEN sync_state.order_id IS NULL THEN 0 ELSE 1 END AS has_pending_sync
        FROM purchase_requests AS request
        LEFT JOIN purchase_order_sync_state AS sync_state ON sync_state.order_id = request.id
        WHERE request.requester_id = ? OR request.assignee_id = ?`,
       userId,
       userId,
     );
+    const localStatusById = new Map(localOrders.map((order) => [order.id, order.status]));
     const remoteOrderIds = new Set(orders.map((order) => order.id));
     for (const localOrder of localOrders) {
       if (!remoteOrderIds.has(localOrder.id) && !localOrder.has_pending_sync) {
@@ -222,6 +289,13 @@ export async function syncPurchaseOrdersFromSupabase(userId: string): Promise<vo
       );
       if (pendingSync) {
         continue;
+      }
+      if (
+        order.requester_id === userId &&
+        order.status === 'delivered' &&
+        localStatusById.get(order.id) !== 'delivered'
+      ) {
+        completedOrderIds.push(order.id);
       }
       const familyId = `family-${order.requester_id}`;
       await transaction.runAsync(
@@ -267,6 +341,9 @@ export async function syncPurchaseOrdersFromSupabase(userId: string): Promise<vo
       }
     }
   });
+  for (const orderId of completedOrderIds) {
+    await createOrderCompletionNotification(orderId, userId);
+  }
   notifyPurchaseSummaryChanged();
 }
 

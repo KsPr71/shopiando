@@ -48,6 +48,32 @@ export async function createOrderNotifications(orderId: string, requesterId: str
   notifyListeners();
 }
 
+export async function createOrderCompletionNotification(orderId: string, requesterId: string): Promise<void> {
+  const database = await getDatabase();
+  const existingNotification = await database.getFirstAsync<{ id: string }>(
+    `SELECT id
+     FROM order_notifications
+     WHERE order_id = ? AND recipient_id = ? AND title = 'Pedido completado'
+     LIMIT 1`,
+    orderId,
+    requesterId,
+  );
+  if (existingNotification) {
+    return;
+  }
+
+  await database.runAsync(
+    `INSERT INTO order_notifications (id, recipient_id, order_id, title, body, created_at, read_at)
+     VALUES (?, ?, ?, 'Pedido completado', 'Tu pedido fue comprado y completado.', ?, NULL)
+     ON CONFLICT(id) DO NOTHING`,
+    `completion-${orderId}`,
+    requesterId,
+    orderId,
+    new Date().toISOString(),
+  );
+  notifyListeners();
+}
+
 export async function getOrderNotifications(userId: string): Promise<OrderNotification[]> {
   const database = await getDatabase();
   const rows = await database.getAllAsync<NotificationRow>(
@@ -106,8 +132,25 @@ export async function syncOrderNotificationsToSupabase(orderId: string): Promise
   if (!notifications.length) {
     return;
   }
-  const { error } = await supabase.from('purchase_order_notifications').upsert(notifications);
+  const { data: userData } = await supabase.auth.getUser();
+  const order = await database.getFirstAsync<{ requester_id: string }>(
+    'SELECT requester_id FROM purchase_requests WHERE id = ?',
+    orderId,
+  );
+  const isRequester = userData.user?.id === order?.requester_id;
+  const notificationsToSync = isRequester
+    ? notifications
+    : notifications.filter((notification) => notification.recipient_id === order?.requester_id && notification.title === 'Pedido completado');
+  if (!notificationsToSync.length) {
+    return;
+  }
+  const { error } = isRequester
+    ? await supabase.from('purchase_order_notifications').upsert(notificationsToSync)
+    : await supabase.from('purchase_order_notifications').insert(notificationsToSync);
   if (error) {
+    if (!isRequester && error.code === '23505') {
+      return;
+    }
     if (isNotificationsTableUnavailable(error.message)) {
       return;
     }
@@ -138,17 +181,6 @@ export async function syncOrderNotificationsFromSupabase(userId: string): Promis
        ON CONFLICT(id) DO UPDATE SET read_at = excluded.read_at`,
       notification.id, notification.recipient_id, notification.order_id, notification.title,
       notification.body, notification.created_at, notification.read_at,
-    );
-  }
-  const remoteIds = (data ?? []).map((notification) => notification.id);
-  if (remoteIds.length === 0) {
-    await database.runAsync('DELETE FROM order_notifications WHERE recipient_id = ?', userId);
-  } else {
-    const placeholders = remoteIds.map(() => '?').join(', ');
-    await database.runAsync(
-      `DELETE FROM order_notifications WHERE recipient_id = ? AND id NOT IN (${placeholders})`,
-      userId,
-      ...remoteIds,
     );
   }
   notifyListeners();

@@ -173,6 +173,10 @@ export async function notifyPurchaseOrderAssigned(orderId: string): Promise<void
   await invokeNotificationFunction({ type: 'purchase_order_assigned', orderId });
 }
 
+export async function notifyPurchaseOrderCompleted(orderId: string): Promise<void> {
+  await invokeNotificationFunction({ type: 'purchase_order_completed', orderId });
+}
+
 async function invokeNotificationFunction(payload: Record<string, string>): Promise<void> {
   if (!supabase) {
     return;

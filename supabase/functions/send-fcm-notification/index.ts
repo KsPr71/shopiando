@@ -3,7 +3,8 @@ import { withSupabase } from "@supabase/server";
 
 type RequestBody =
   | { type: 'product_created'; productId: string }
-  | { type: 'purchase_order_assigned'; orderId: string };
+  | { type: 'purchase_order_assigned'; orderId: string }
+  | { type: 'purchase_order_completed'; orderId: string };
 
 type PushTokenRow = { user_id: string; token: string };
 
@@ -23,7 +24,9 @@ export default {
 
     const notification = payload.type === 'product_created'
       ? await getProductNotification(ctx.supabaseAdmin, callerId, payload.productId)
-      : await getOrderNotification(ctx.supabaseAdmin, callerId, payload.orderId);
+      : payload.type === 'purchase_order_assigned'
+        ? await getAssignedOrderNotification(ctx.supabaseAdmin, callerId, payload.orderId)
+        : await getCompletedOrderNotification(ctx.supabaseAdmin, callerId, payload.orderId);
 
     if ('error' in notification) {
       return Response.json({ error: notification.error }, { status: notification.status });
@@ -85,7 +88,8 @@ function getCallerId(claims: Record<string, unknown> | undefined): string | null
 
 function isValidPayload(payload: RequestBody): boolean {
   return (payload.type === 'product_created' && Boolean(payload.productId))
-    || (payload.type === 'purchase_order_assigned' && Boolean(payload.orderId));
+    || (payload.type === 'purchase_order_assigned' && Boolean(payload.orderId))
+    || (payload.type === 'purchase_order_completed' && Boolean(payload.orderId));
 }
 
 async function getProductNotification(admin: any, callerId: string, productId: string) {
@@ -113,7 +117,7 @@ async function getProductNotification(admin: any, callerId: string, productId: s
   };
 }
 
-async function getOrderNotification(admin: any, callerId: string, orderId: string) {
+async function getAssignedOrderNotification(admin: any, callerId: string, orderId: string) {
   const { data: order, error } = await admin
     .from('purchase_orders')
     .select('id, requester_id, assignee_id')
@@ -131,6 +135,44 @@ async function getOrderNotification(admin: any, callerId: string, orderId: strin
     title: 'Nuevo pedido asignado',
     body: 'Tienes un pedido pendiente de compra.',
     data: { type: 'purchase_order_assigned', orderId: order.id },
+  };
+}
+
+async function getCompletedOrderNotification(admin: any, callerId: string, orderId: string) {
+  const { data: order, error } = await admin
+    .from('purchase_orders')
+    .select('id, requester_id, assignee_id, status')
+    .eq('id', orderId)
+    .maybeSingle();
+  if (error) {
+    throw new Error(error.message);
+  }
+  if (!order || order.assignee_id !== callerId || order.status !== 'delivered') {
+    return { error: 'No puedes notificar la finalizaciÃ³n de este pedido.', status: 403 } as const;
+  }
+
+  const notificationId = `completion-${order.id}`;
+  const { error: notificationError } = await admin
+    .from('purchase_order_notifications')
+    .upsert({
+      id: notificationId,
+      recipient_id: order.requester_id,
+      order_id: order.id,
+      title: 'Pedido completado',
+      body: 'Tu pedido fue comprado y completado.',
+      created_at: new Date().toISOString(),
+      read_at: null,
+    });
+  if (notificationError) {
+    throw new Error(notificationError.message);
+  }
+
+  return {
+    recipientIds: [order.requester_id],
+    sourceId: order.id,
+    title: 'Pedido completado',
+    body: 'Tu pedido fue comprado y completado.',
+    data: { type: 'purchase_order_completed', orderId: order.id },
   };
 }
 

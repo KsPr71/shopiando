@@ -74,6 +74,9 @@ export default function HomeScreen() {
   const [leavingOrderIds, setLeavingOrderIds] = useState<
     Record<string, boolean>
   >({});
+  const [completedOrderIds, setCompletedOrderIds] = useState<
+    Record<string, boolean>
+  >({});
   const [notifications, setNotifications] = useState<OrderNotification[]>([]);
   const [isNotificationsVisible, setIsNotificationsVisible] = useState(false);
   const deferredOrderIds = useRef(new Set<string>());
@@ -126,6 +129,7 @@ export default function HomeScreen() {
     }
 
     let isMounted = true;
+    let isSynchronizing = false;
     const refreshOrders = () => {
       void getAssignedPurchaseOrders(user.id)
         .then((orders) => {
@@ -142,15 +146,29 @@ export default function HomeScreen() {
         })
         .catch(() => {});
     };
+    const synchronizeRemoteOrders = () => {
+      if (isSynchronizing) {
+        return;
+      }
+      isSynchronizing = true;
+      void syncPurchaseOrdersFromSupabase(user.id)
+        .catch(() => {})
+        .finally(() => {
+          isSynchronizing = false;
+          refreshOrders();
+        });
+    };
     void syncPurchaseOrdersToSupabase()
-      .then(() => syncPurchaseOrdersFromSupabase(user.id))
+      .then(synchronizeRemoteOrders)
       .finally(refreshOrders);
     refreshOrders();
     const unsubscribeSummary = subscribeToPurchaseSummaryChanges(refreshOrders);
-    const unsubscribeRemote = subscribeToPurchaseOrders(user.id, refreshOrders);
+    const unsubscribeRemote = subscribeToPurchaseOrders(user.id, synchronizeRemoteOrders);
+    const syncTimer = setInterval(synchronizeRemoteOrders, 15_000);
 
     return () => {
       isMounted = false;
+      clearInterval(syncTimer);
       unsubscribeSummary();
       unsubscribeRemote();
     };
@@ -246,11 +264,17 @@ export default function HomeScreen() {
       .catch(() => {})
       .finally(() => refreshNotifications());
     refreshNotifications();
+    const syncTimer = setInterval(() => {
+      void syncOrderNotificationsFromSupabase(user.id)
+        .catch(() => {})
+        .finally(() => refreshNotifications(true));
+    }, 15_000);
     const unsubscribe = subscribeToOrderNotifications(user.id, () =>
       refreshNotifications(true),
     );
     return () => {
       isMounted = false;
+      clearInterval(syncTimer);
       unsubscribe();
     };
   }, [user?.id]);
@@ -315,41 +339,62 @@ export default function HomeScreen() {
       deferredOrderIds.current.add(order.id);
     }
     setUpdatingItemId(itemId);
+    setAssignedOrders((currentOrders) =>
+      currentOrders.map((currentOrder) =>
+        currentOrder.id === order.id
+          ? {
+              ...currentOrder,
+              items: currentOrder.items.map((item) =>
+                item.id === itemId
+                  ? { ...item, isPurchased: !isPurchased }
+                  : item,
+              ),
+            }
+          : currentOrder,
+      ),
+    );
+    let feedbackTimer: ReturnType<typeof setTimeout> | null = null;
+    if (!isPurchased) {
+      setPurchasedFeedbackItemIds((current) => ({
+        ...current,
+        [itemId]: true,
+      }));
+      setExpandedOrders((current) => ({ ...current, [order.id]: true }));
+      if (completesOrder) {
+        setCompletedOrderIds((current) => ({ ...current, [order.id]: true }));
+      }
+      feedbackTimer = setTimeout(() => {
+        setPurchasedFeedbackItemIds((current) => ({
+          ...current,
+          [itemId]: false,
+        }));
+        if (completesOrder) {
+          setLeavingOrderIds((current) => ({ ...current, [order.id]: true }));
+        }
+      }, 3000);
+      feedbackTimers.current.push(feedbackTimer);
+    }
     try {
       await setPurchaseItemPurchased(order.id, itemId, !isPurchased);
+    } catch {
+      if (feedbackTimer) {
+        clearTimeout(feedbackTimer);
+      }
+      deferredOrderIds.current.delete(order.id);
       setAssignedOrders((currentOrders) =>
         currentOrders.map((currentOrder) =>
           currentOrder.id === order.id
             ? {
                 ...currentOrder,
                 items: currentOrder.items.map((item) =>
-                  item.id === itemId
-                    ? { ...item, isPurchased: !isPurchased }
-                    : item,
+                  item.id === itemId ? { ...item, isPurchased } : item,
                 ),
               }
             : currentOrder,
         ),
       );
-      if (!isPurchased) {
-        setPurchasedFeedbackItemIds((current) => ({
-          ...current,
-          [itemId]: true,
-        }));
-        setExpandedOrders((current) => ({ ...current, [order.id]: true }));
-        const feedbackTimer = setTimeout(() => {
-          setPurchasedFeedbackItemIds((current) => ({
-            ...current,
-            [itemId]: false,
-          }));
-          if (completesOrder) {
-            setLeavingOrderIds((current) => ({ ...current, [order.id]: true }));
-          }
-        }, 3000);
-        feedbackTimers.current.push(feedbackTimer);
-      }
-    } catch {
-      deferredOrderIds.current.delete(order.id);
+      setPurchasedFeedbackItemIds((current) => ({ ...current, [itemId]: false }));
+      setCompletedOrderIds((current) => ({ ...current, [order.id]: false }));
     } finally {
       setUpdatingItemId(null);
     }
@@ -361,6 +406,7 @@ export default function HomeScreen() {
       currentOrders.filter((order) => order.id !== orderId),
     );
     setLeavingOrderIds((current) => ({ ...current, [orderId]: false }));
+    setCompletedOrderIds((current) => ({ ...current, [orderId]: false }));
     if (user) {
       void getAssignedPurchaseOrders(user.id)
         .then(setAssignedOrders)
@@ -561,6 +607,7 @@ export default function HomeScreen() {
                 ) : null}
                 {assignedOrders.map((order) => {
                   const isExpanded = expandedOrders[order.id] ?? false;
+                  const isCompleted = completedOrderIds[order.id] || order.items.every((item) => item.isPurchased);
                   const requesterInitial = order.requesterName
                     .trim()
                     .charAt(0)
@@ -620,6 +667,23 @@ export default function HomeScreen() {
                             >
                               {formatOrderDate(order.createdAt)}
                             </ThemedText>
+                            <View
+                              style={[
+                                styles.orderStatusChip,
+                                {
+                                  backgroundColor: isCompleted ? "#DDF5E8" : "#FFF1CC",
+                                },
+                              ]}
+                            >
+                              <ThemedText
+                                style={[
+                                  styles.orderStatusChipText,
+                                  { color: isCompleted ? theme.success : "#9A6700" },
+                                ]}
+                              >
+                                {isCompleted ? "Terminado" : "Pendiente"}
+                              </ThemedText>
+                            </View>
                           </View>
                           <View style={styles.orderTotal}>
                             <ThemedText
@@ -640,6 +704,18 @@ export default function HomeScreen() {
                               : "•"}
                           </ThemedText>
                         </Pressable>
+                        {completedOrderIds[order.id] ? (
+                          <View
+                            style={[
+                              styles.completedOrderFeedback,
+                              { backgroundColor: theme.success },
+                            ]}
+                          >
+                            <ThemedText style={styles.completedOrderFeedbackText}>
+                              Pedido completado
+                            </ThemedText>
+                          </View>
+                        ) : null}
                         {isExpanded ? (
                           <View
                             style={[
@@ -1144,6 +1220,15 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
   },
+  completedOrderFeedback: {
+    alignItems: "center",
+    marginHorizontal: Spacing.three,
+    marginTop: -Spacing.one,
+    borderRadius: Spacing.one,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 6,
+  },
+  completedOrderFeedbackText: { color: "#FFFFFF", fontSize: 12, fontWeight: "800" },
   orderHeader: {
     alignItems: "center",
     flexDirection: "row",
@@ -1163,6 +1248,14 @@ const styles = StyleSheet.create({
   orderInfo: { flex: 1, minWidth: 0 },
   requesterName: { fontSize: 14, fontWeight: "800" },
   orderDate: { fontSize: 11, marginTop: 2 },
+  orderStatusChip: {
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    marginTop: 5,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  orderStatusChipText: { fontSize: 10, fontWeight: "800" },
   orderTotal: { alignItems: "flex-end" },
   orderTotalLabel: { fontSize: 10 },
   orderTotalValue: { fontSize: 14, fontWeight: "800", marginTop: 2 },

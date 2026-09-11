@@ -1,4 +1,5 @@
 import { getDatabase } from '@/database/database';
+import { createOrderCompletionNotification } from '@/services/order-notifications';
 import { notifyPurchaseSummaryChanged } from '@/services/purchase-summary';
 import { markPurchaseOrderForSync, syncPurchaseOrderToSupabase } from '@/services/purchase-order-sync';
 
@@ -94,6 +95,8 @@ export async function getAssignedPurchaseOrders(userId: string): Promise<Assigne
 export async function setPurchaseItemPurchased(orderId: string, itemId: string, isPurchased: boolean): Promise<void> {
   const database = await getDatabase();
   const now = new Date().toISOString();
+  let requesterId: string | null = null;
+  let isOrderCompleted = false;
   await database.withExclusiveTransactionAsync(async (transaction) => {
     await transaction.runAsync(
       `UPDATE purchase_request_items
@@ -128,8 +131,17 @@ export async function setPurchaseItemPurchased(orderId: string, itemId: string, 
       now,
       orderId,
     );
+    const updatedOrder = await transaction.getFirstAsync<{ requester_id: string; status: string }>(
+      'SELECT requester_id, status FROM purchase_requests WHERE id = ?',
+      orderId,
+    );
+    requesterId = updatedOrder?.requester_id ?? null;
+    isOrderCompleted = updatedOrder?.status === 'delivered';
   });
+  if (isOrderCompleted && requesterId) {
+    await createOrderCompletionNotification(orderId, requesterId);
+  }
   await markPurchaseOrderForSync(orderId);
   notifyPurchaseSummaryChanged();
-  void syncPurchaseOrderToSupabase(orderId).catch(() => {});
+  await syncPurchaseOrderToSupabase(orderId);
 }

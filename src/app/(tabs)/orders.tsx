@@ -149,7 +149,9 @@ export default function OrdersScreen() {
                       </View>
                       <View style={styles.orderInfo}>
                         <ThemedText style={styles.assigneeName}>{order.assigneeName}</ThemedText>
-                        <ThemedText themeColor="textSecondary" style={styles.orderStatus}>{formatStatus(order.status)}</ThemedText>
+                        <View style={[styles.orderStatusChip, { backgroundColor: order.status === 'delivered' ? '#DDF5E8' : '#FFF1CC' }]}>
+                          <ThemedText style={[styles.orderStatusChipText, { color: order.status === 'delivered' ? theme.success : '#9A6700' }]}>{order.status === 'delivered' ? 'Terminado' : 'Pendiente'}</ThemedText>
+                        </View>
                       </View>
                       <View style={styles.totalBlock}>
                         <ThemedText themeColor="textSecondary" style={styles.totalLabel}>Total</ThemedText>
@@ -230,7 +232,8 @@ const styles = StyleSheet.create({
   avatarInitial: { fontSize: 15, fontWeight: '800' },
   orderInfo: { flex: 1, minWidth: 0 },
   assigneeName: { fontSize: 14, fontWeight: '800' },
-  orderStatus: { fontSize: 11, marginTop: 2 },
+  orderStatusChip: { alignSelf: 'flex-start', borderRadius: 999, marginTop: 5, paddingHorizontal: 7, paddingVertical: 2 },
+  orderStatusChipText: { fontSize: 10, fontWeight: '800' },
   totalBlock: { alignItems: 'flex-end' },
   totalLabel: { fontSize: 10 },
   totalValue: { fontSize: 14, fontWeight: '800', marginTop: 2 },
