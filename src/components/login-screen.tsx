@@ -268,7 +268,7 @@ function FloatingInput(props: {
   return (
     <View style={[styles.field, { borderColor: theme.backgroundSelected }]}>
       <View
-        style={[styles.fieldLabelWrap, { backgroundColor: theme.background }]}
+        style={styles.fieldLabelWrap}
       >
         <ThemedText themeColor="textSecondary" style={styles.fieldLabel}>
           {label}
@@ -296,12 +296,13 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     justifyContent: "center",
     paddingHorizontal: 33,
-    paddingVertical: 28,
+    paddingTop: 28,
+    paddingBottom: 76,
   },
   contentWithKeyboard: {
     justifyContent: "flex-start",
     paddingTop: 16,
-    paddingBottom: 120,
+    paddingBottom: 180,
   },
   hero: { alignItems: "center", marginBottom: 30 },
   heroLogo: { width: 112, height: 112, borderRadius: 22, marginBottom: 12 },
@@ -311,6 +312,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 24, lineHeight: 29, fontWeight: "700" },
   fields: { gap: 20 },
   field: {
+    backgroundColor: "#FFFFFF",
     height: 54,
     borderWidth: 1,
     borderRadius: 5,
@@ -319,6 +321,7 @@ const styles = StyleSheet.create({
     paddingLeft: 16,
   },
   fieldLabelWrap: {
+    backgroundColor: "#FFFFFF",
     position: "absolute",
     top: -8,
     left: 16,
@@ -327,6 +330,7 @@ const styles = StyleSheet.create({
   },
   fieldLabel: { fontSize: 12, lineHeight: 14, fontWeight: "500" },
   input: {
+    backgroundColor: "transparent",
     flex: 1,
     height: "100%",
     fontSize: 16,

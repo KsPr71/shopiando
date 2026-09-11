@@ -51,6 +51,8 @@ import {
 } from "@/services/purchase-order-sync";
 import { subscribeToPurchaseSummaryChanges } from "@/services/purchase-summary";
 
+const COMPLETED_ORDER_DISPLAY_MS = 6000;
+
 export default function HomeScreen() {
   const [symbolsLoaded] = useFonts({
     MaterialSymbols: MaterialSymbols_400Regular,
@@ -79,7 +81,9 @@ export default function HomeScreen() {
   >({});
   const [notifications, setNotifications] = useState<OrderNotification[]>([]);
   const [isNotificationsVisible, setIsNotificationsVisible] = useState(false);
-  const deferredOrderIds = useRef(new Set<string>());
+  const deferredOrderSnapshots = useRef(
+    new Map<string, AssignedPurchaseOrder>(),
+  );
   const feedbackTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const knownNotificationIds = useRef(new Set<string>());
   const hasLoadedNotifications = useRef(false);
@@ -134,13 +138,14 @@ export default function HomeScreen() {
       void getAssignedPurchaseOrders(user.id)
         .then((orders) => {
           if (isMounted) {
-            setAssignedOrders((currentOrders) => {
-              const deferredOrders = currentOrders.filter(
-                (order) =>
-                  deferredOrderIds.current.has(order.id) &&
-                  !orders.some((nextOrder) => nextOrder.id === order.id),
+            setAssignedOrders(() => {
+              const deferredOrders = Array.from(
+                deferredOrderSnapshots.current.values(),
               );
-              return [...orders, ...deferredOrders];
+              const refreshedOrders = orders.filter(
+                (order) => !deferredOrderSnapshots.current.has(order.id),
+              );
+              return [...refreshedOrders, ...deferredOrders];
             });
           }
         })
@@ -163,7 +168,10 @@ export default function HomeScreen() {
       .finally(refreshOrders);
     refreshOrders();
     const unsubscribeSummary = subscribeToPurchaseSummaryChanges(refreshOrders);
-    const unsubscribeRemote = subscribeToPurchaseOrders(user.id, synchronizeRemoteOrders);
+    const unsubscribeRemote = subscribeToPurchaseOrders(
+      user.id,
+      synchronizeRemoteOrders,
+    );
     const syncTimer = setInterval(synchronizeRemoteOrders, 15_000);
 
     return () => {
@@ -193,7 +201,11 @@ export default function HomeScreen() {
         setProducts(nextProducts);
       }
     };
-    const applyProductChange = (change: { type: "upsert"; product: Product } | { type: "delete"; productId: string }) => {
+    const applyProductChange = (
+      change:
+        | { type: "upsert"; product: Product }
+        | { type: "delete"; productId: string },
+    ) => {
       if (!isMounted) {
         return;
       }
@@ -201,7 +213,9 @@ export default function HomeScreen() {
         change.type === "delete"
           ? currentProducts.filter((product) => product.id !== change.productId)
           : currentProducts.some((product) => product.id === change.product.id)
-            ? currentProducts.map((product) => product.id === change.product.id ? change.product : product)
+            ? currentProducts.map((product) =>
+                product.id === change.product.id ? change.product : product,
+              )
             : [change.product, ...currentProducts],
       );
     };
@@ -213,16 +227,16 @@ export default function HomeScreen() {
       .then(applyProducts)
       .catch(() => {});
     const refreshTimer = setInterval(() => {
-      void getProducts().then(applyProducts).catch(() => {});
+      void getProducts()
+        .then(applyProducts)
+        .catch(() => {});
     }, 12_000);
     let unsubscribe = () => {};
     try {
-      unsubscribe = subscribeToProductCatalog(
-        applyProductChange,
-        () => {},
-      );
+      unsubscribe = subscribeToProductCatalog(applyProductChange, () => {});
     } catch {}
-    const unsubscribeLocal = subscribeToLocalProductCatalogChanges(applyProductChange);
+    const unsubscribeLocal =
+      subscribeToLocalProductCatalogChanges(applyProductChange);
 
     return () => {
       isMounted = false;
@@ -306,7 +320,8 @@ export default function HomeScreen() {
     .map((name) => name[0])
     .join("")
     .toUpperCase();
-  const greeting = localProfile?.gender === "female" ? "Bienvenida" : "Bienvenido";
+  const greeting =
+    localProfile?.gender === "female" ? "Bienvenida" : "Bienvenido";
   const availableProducts = products.filter(
     (product) => product.isAvailable,
   ).length;
@@ -336,7 +351,12 @@ export default function HomeScreen() {
       !isPurchased &&
       order.items.every((item) => item.id === itemId || item.isPurchased);
     if (completesOrder) {
-      deferredOrderIds.current.add(order.id);
+      deferredOrderSnapshots.current.set(order.id, {
+        ...order,
+        items: order.items.map((item) =>
+          item.id === itemId ? { ...item, isPurchased: true } : item,
+        ),
+      });
     }
     setUpdatingItemId(itemId);
     setAssignedOrders((currentOrders) =>
@@ -371,7 +391,7 @@ export default function HomeScreen() {
         if (completesOrder) {
           setLeavingOrderIds((current) => ({ ...current, [order.id]: true }));
         }
-      }, 3000);
+      }, COMPLETED_ORDER_DISPLAY_MS);
       feedbackTimers.current.push(feedbackTimer);
     }
     try {
@@ -380,7 +400,7 @@ export default function HomeScreen() {
       if (feedbackTimer) {
         clearTimeout(feedbackTimer);
       }
-      deferredOrderIds.current.delete(order.id);
+      deferredOrderSnapshots.current.delete(order.id);
       setAssignedOrders((currentOrders) =>
         currentOrders.map((currentOrder) =>
           currentOrder.id === order.id
@@ -393,15 +413,19 @@ export default function HomeScreen() {
             : currentOrder,
         ),
       );
-      setPurchasedFeedbackItemIds((current) => ({ ...current, [itemId]: false }));
+      setPurchasedFeedbackItemIds((current) => ({
+        ...current,
+        [itemId]: false,
+      }));
       setCompletedOrderIds((current) => ({ ...current, [order.id]: false }));
+      setLeavingOrderIds((current) => ({ ...current, [order.id]: false }));
     } finally {
       setUpdatingItemId(null);
     }
   }
 
   function removeCompletedOrder(orderId: string) {
-    deferredOrderIds.current.delete(orderId);
+    deferredOrderSnapshots.current.delete(orderId);
     setAssignedOrders((currentOrders) =>
       currentOrders.filter((order) => order.id !== orderId),
     );
@@ -433,7 +457,9 @@ export default function HomeScreen() {
     }
     try {
       await clearReadOrderNotifications(user.id);
-      setNotifications((current) => current.filter((notification) => !notification.readAt));
+      setNotifications((current) =>
+        current.filter((notification) => !notification.readAt),
+      );
     } catch {}
   }
 
@@ -607,7 +633,9 @@ export default function HomeScreen() {
                 ) : null}
                 {assignedOrders.map((order) => {
                   const isExpanded = expandedOrders[order.id] ?? false;
-                  const isCompleted = completedOrderIds[order.id] || order.items.every((item) => item.isPurchased);
+                  const isCompleted =
+                    completedOrderIds[order.id] ||
+                    order.items.every((item) => item.isPurchased);
                   const requesterInitial = order.requesterName
                     .trim()
                     .charAt(0)
@@ -671,14 +699,20 @@ export default function HomeScreen() {
                               style={[
                                 styles.orderStatusChip,
                                 {
-                                  backgroundColor: isCompleted ? "#DDF5E8" : "#FFF1CC",
+                                  backgroundColor: isCompleted
+                                    ? "#DDF5E8"
+                                    : "#FFF1CC",
                                 },
                               ]}
                             >
                               <ThemedText
                                 style={[
                                   styles.orderStatusChipText,
-                                  { color: isCompleted ? theme.success : "#9A6700" },
+                                  {
+                                    color: isCompleted
+                                      ? theme.success
+                                      : "#9A6700",
+                                  },
                                 ]}
                               >
                                 {isCompleted ? "Terminado" : "Pendiente"}
@@ -711,7 +745,9 @@ export default function HomeScreen() {
                               { backgroundColor: theme.success },
                             ]}
                           >
-                            <ThemedText style={styles.completedOrderFeedbackText}>
+                            <ThemedText
+                              style={styles.completedOrderFeedbackText}
+                            >
                               Pedido completado
                             </ThemedText>
                           </View>
@@ -866,9 +902,22 @@ export default function HomeScreen() {
                     Notificaciones
                   </ThemedText>
                   <View style={styles.notificationsHeaderActions}>
-                    {notifications.some((notification) => notification.readAt) ? (
-                      <Pressable accessibilityLabel="Eliminar notificaciones leídas" onPress={() => void clearReadNotifications()} style={styles.clearNotificationsButton}>
-                        <ThemedText style={[styles.clearNotificationsText, { color: theme.primary }]}>Limpiar leídas</ThemedText>
+                    {notifications.some(
+                      (notification) => notification.readAt,
+                    ) ? (
+                      <Pressable
+                        accessibilityLabel="Eliminar notificaciones leídas"
+                        onPress={() => void clearReadNotifications()}
+                        style={styles.clearNotificationsButton}
+                      >
+                        <ThemedText
+                          style={[
+                            styles.clearNotificationsText,
+                            { color: theme.primary },
+                          ]}
+                        >
+                          Limpiar leídas
+                        </ThemedText>
                       </Pressable>
                     ) : null}
                     <Pressable
@@ -1127,8 +1176,15 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: Spacing.two,
   },
-  notificationsHeaderActions: { alignItems: "center", flexDirection: "row", gap: Spacing.one },
-  clearNotificationsButton: { paddingHorizontal: Spacing.one, paddingVertical: Spacing.one },
+  notificationsHeaderActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: Spacing.one,
+  },
+  clearNotificationsButton: {
+    paddingHorizontal: Spacing.one,
+    paddingVertical: Spacing.one,
+  },
   clearNotificationsText: { fontSize: 12, fontWeight: "800" },
   notificationsTitle: { fontSize: 18, fontWeight: "800" },
   notificationsClose: {
@@ -1228,7 +1284,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.two,
     paddingVertical: 6,
   },
-  completedOrderFeedbackText: { color: "#FFFFFF", fontSize: 12, fontWeight: "800" },
+  completedOrderFeedbackText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "800",
+  },
   orderHeader: {
     alignItems: "center",
     flexDirection: "row",

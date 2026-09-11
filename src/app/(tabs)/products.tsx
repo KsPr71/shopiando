@@ -1,12 +1,12 @@
 import { Redirect, useRouter } from 'expo-router';
 import { useFonts } from 'expo-font';
 import { MaterialSymbols_400Regular } from '@expo-google-fonts/material-symbols';
+import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -243,14 +243,19 @@ export default function ProductsScreen() {
   }
 
   async function chooseProductImage() {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      setError('Necesitamos permiso para seleccionar la imagen del producto.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
-    if (!result.canceled) {
-      setNewImage(result.assets[0]);
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setError('Necesitamos permiso para seleccionar la imagen del producto.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
+      if (!result.canceled && result.assets[0]) {
+        setNewImage(result.assets[0]);
+        setError(null);
+      }
+    } catch (imageError) {
+      setError(imageError instanceof Error ? `No se pudo abrir la imagen: ${imageError.message}` : 'No se pudo seleccionar la imagen.');
     }
   }
 
@@ -263,9 +268,10 @@ export default function ProductsScreen() {
     }
     setIsSavingProduct(true);
     setError(null);
+    const isEditing = Boolean(editingProduct);
     try {
       const product = editingProduct
-        ? await updateProduct(editingProduct.id, { name: newName, description: newDescription, category: newCategory, priceCents, unitType: newUnitType, packageQuantity, supplierId: newSupplierId })
+        ? await updateProduct(editingProduct.id, { name: newName, description: newDescription, category: newCategory, priceCents, unitType: newUnitType, packageQuantity, supplierId: newSupplierId, image: newImage })
         : await addProduct({ name: newName, description: newDescription, category: newCategory, priceCents, unitType: newUnitType, packageQuantity, supplierId: newSupplierId, image: newImage });
       setProducts((currentProducts) => editingProduct ? currentProducts.map((item) => item.id === product.id ? product : item) : [product, ...currentProducts]);
       setNewName('');
@@ -278,7 +284,7 @@ export default function ProductsScreen() {
       setNewImage(null);
       setEditingProduct(null);
       setIsAddModalVisible(false);
-      setMessage('Producto añadido al catálogo.');
+      setMessage(isEditing ? 'Producto actualizado.' : 'Producto añadido al catálogo.');
     } catch (productError) {
       setError(productError instanceof Error ? productError.message : 'No se pudo añadir el producto.');
     } finally {
@@ -459,6 +465,7 @@ export default function ProductsScreen() {
                 return productsForDisplay.map((product) => {
                 const quantity = cart[product.id] ?? 0;
                 const isExpanded = expandedProducts[product.id] ?? false;
+                const canEditProduct = canManageCatalog || product.ownerId === profileUser.id;
                 const supplierName = suppliers.find((supplier) => supplier.id === product.supplierId)?.name ?? 'Sin proveedor';
                 const showSupplierHeading = groupBySupplier && supplierName !== previousSupplierName;
                 previousSupplierName = supplierName;
@@ -481,7 +488,7 @@ export default function ProductsScreen() {
                       </View>
                       <View style={styles.productFooter}>
                         <View style={styles.productActions}>
-                        {isExpanded && canManageCatalog ? <Pressable accessibilityLabel={`Editar ${product.name}`} onPress={() => openProductEditor(product)} style={styles.editButton}><ThemedText themeColor="info" style={styles.editButtonText}>Editar</ThemedText></Pressable> : null}
+                        {isExpanded && canEditProduct ? <Pressable accessibilityLabel={`Editar ${product.name}`} onPress={() => openProductEditor(product)} style={styles.editButton}><ThemedText themeColor="info" style={styles.editButtonText}>Editar</ThemedText></Pressable> : null}
                         {isExpanded && canManageCatalog ? <Switch accessibilityLabel={`Cambiar disponibilidad de ${product.name}`} value={product.isAvailable} onValueChange={(value) => toggleAvailability(product, value)} trackColor={{ false: theme.backgroundSelected, true: theme.primary }} /> : null}
                         <Pressable accessibilityLabel={isExpanded ? `Ocultar detalles de ${product.name}` : `Ver detalles de ${product.name}`} onPress={() => setExpandedProducts((current) => ({ ...current, [product.id]: !isExpanded }))} style={[styles.chevronButton, { borderColor: theme.backgroundSelected }]}>
                           <ThemedText style={styles.materialIcon}>{symbolsLoaded ? (isExpanded ? 'expand_less' : 'expand_more') : '•'}</ThemedText>
@@ -574,7 +581,7 @@ export default function ProductsScreen() {
           <ThemedView type="backgroundElement" style={styles.assigneeModal}>
             <ThemedText style={styles.assigneeTitle}>{editingProduct ? 'Editar producto' : 'Nuevo producto'}</ThemedText>
             <Pressable accessibilityRole="button" onPress={chooseProductImage} style={[styles.imagePicker, { borderColor: theme.backgroundSelected }]}>
-              {newImage ? <Image source={{ uri: newImage.uri }} style={styles.newImagePreview} /> : <ThemedText themeColor="textSecondary">Seleccionar imagen</ThemedText>}
+              {newImage || editingProduct?.imageUrl ? <Image cachePolicy="memory-disk" contentFit="cover" source={{ uri: newImage?.uri ?? editingProduct!.imageUrl! }} style={styles.newImagePreview} /> : <ThemedText themeColor="textSecondary">Seleccionar imagen</ThemedText>}
             </Pressable>
             <TextInput value={newName} onChangeText={setNewName} placeholder="Nombre" placeholderTextColor={theme.textSecondary} style={[styles.formInput, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]} />
             <TextInput value={newDescription} onChangeText={setNewDescription} placeholder="Descripción" multiline placeholderTextColor={theme.textSecondary} style={[styles.formInput, styles.descriptionInput, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]} />
@@ -677,6 +684,10 @@ export default function ProductsScreen() {
 
 function ProductImage({ category, sourceUri }: { category: string; sourceUri: string | null }) {
   const [hasFailed, setHasFailed] = useState(false);
+
+  useEffect(() => {
+    setHasFailed(false);
+  }, [sourceUri]);
 
   if (!sourceUri || hasFailed) {
     return <View style={styles.imageFallback}><ThemedText style={styles.imageFallbackText}>{category[0]?.toUpperCase()}</ThemedText></View>;

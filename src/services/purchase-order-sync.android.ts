@@ -100,8 +100,12 @@ export async function syncPurchaseOrderToSupabase(orderId: string): Promise<void
     });
     if (order.status === 'delivered') {
       try {
-        await notifyPurchaseOrderCompleted(orderId);
-        console.info('[Notificaciones] Solicitud de pedido completado enviada.', { orderId });
+        const result = await notifyPurchaseOrderCompleted(orderId);
+        console.info('[Notificaciones] Solicitud de pedido completado enviada.', {
+          orderId,
+          delivered: result.delivered,
+          recipientsWithoutToken: result.recipientsWithoutToken,
+        });
       } catch (error) {
         console.warn('No se pudo enviar la notificación de pedido completado.', error);
       }
@@ -152,6 +156,18 @@ export async function syncPurchaseOrderToSupabase(orderId: string): Promise<void
   }
   await database.runAsync('DELETE FROM purchase_order_sync_state WHERE order_id = ?', orderId);
   await syncOrderNotificationsToSupabase(orderId);
+  if (order.status === 'delivered') {
+    try {
+      const result = await notifyPurchaseOrderCompleted(orderId);
+      console.info('[Notificaciones] Solicitud de pedido completado enviada.', {
+        orderId,
+        delivered: result.delivered,
+        recipientsWithoutToken: result.recipientsWithoutToken,
+      });
+    } catch (error) {
+      console.warn('No se pudo enviar la notificación de pedido completado.', error);
+    }
+  }
 }
 
 async function updateExistingPurchaseOrder(order: OrderRow, items: ItemRow[]): Promise<void> {
@@ -343,6 +359,16 @@ export async function syncPurchaseOrdersFromSupabase(userId: string): Promise<vo
   });
   for (const orderId of completedOrderIds) {
     await createOrderCompletionNotification(orderId, userId);
+    try {
+      const result = await notifyPurchaseOrderCompleted(orderId);
+      console.info('[Notificaciones] Finalización detectada por el solicitante.', {
+        orderId,
+        delivered: result.delivered,
+        recipientsWithoutToken: result.recipientsWithoutToken,
+      });
+    } catch (error) {
+      console.warn('No se pudo enviar el aviso FCM de finalización detectada.', error);
+    }
   }
   notifyPurchaseSummaryChanged();
 }

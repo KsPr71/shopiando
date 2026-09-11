@@ -173,16 +173,21 @@ export async function notifyPurchaseOrderAssigned(orderId: string): Promise<void
   await invokeNotificationFunction({ type: 'purchase_order_assigned', orderId });
 }
 
-export async function notifyPurchaseOrderCompleted(orderId: string): Promise<void> {
-  await invokeNotificationFunction({ type: 'purchase_order_completed', orderId });
+export async function notifyPurchaseOrderCompleted(orderId: string): Promise<{ delivered: number; recipientsWithoutToken: number }> {
+  const response = await invokeNotificationFunction({ type: 'purchase_order_completed', orderId });
+  return {
+    delivered: Number(response?.delivered ?? 0),
+    recipientsWithoutToken: Number(response?.recipientsWithoutToken ?? 0),
+  };
 }
 
-async function invokeNotificationFunction(payload: Record<string, string>): Promise<void> {
+async function invokeNotificationFunction(payload: Record<string, string>): Promise<Record<string, unknown> | null> {
   if (!supabase) {
-    return;
+    return null;
   }
-  const { error } = await supabase.functions.invoke('send-fcm-notification', { body: payload });
+  const { data, error } = await supabase.functions.invoke('send-fcm-notification', { body: payload });
   if (error) {
     throw new Error(error.message);
   }
+  return data as Record<string, unknown> | null;
 }

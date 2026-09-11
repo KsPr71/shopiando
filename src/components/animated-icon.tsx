@@ -1,61 +1,48 @@
 import { Image } from 'expo-image';
 import * as SplashScreen from 'expo-splash-screen';
-import { useState } from 'react';
-import { Dimensions, StyleSheet, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Animated as NativeAnimated, Dimensions, StyleSheet, View } from 'react-native';
 import Animated, { Easing, Keyframe } from 'react-native-reanimated';
-import { scheduleOnRN } from 'react-native-worklets';
+
+import { useAuth } from '@/contexts/auth-context';
+import { useDatabaseReady } from '@/database/database-provider';
 
 const INITIAL_SCALE_FACTOR = Dimensions.get('screen').height / 90;
 const DURATION = 600;
 
 export function AnimatedSplashOverlay() {
-  const [animate, setAnimate] = useState(false);
+  const { isReady: isAuthReady } = useAuth();
+  const isDatabaseReady = useDatabaseReady();
+  const opacity = useRef(new NativeAnimated.Value(1)).current;
+  const [isLayoutReady, setIsLayoutReady] = useState(false);
   const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    if (!isLayoutReady || !isAuthReady || !isDatabaseReady) {
+      return;
+    }
+    void SplashScreen.hideAsync().finally(() => {
+      NativeAnimated.timing(opacity, {
+        duration: 280,
+        toValue: 0,
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) {
+          setVisible(false);
+        }
+      });
+    });
+  }, [isAuthReady, isDatabaseReady, isLayoutReady, opacity]);
 
   if (!visible) return null;
 
-  const splashKeyframe = new Keyframe({
-    0: {
-      transform: [{ scale: 1 }],
-      opacity: 1,
-    },
-    20: {
-      opacity: 1,
-    },
-    70: {
-      opacity: 0,
-      easing: Easing.elastic(0.7),
-    },
-    100: {
-      opacity: 0,
-      transform: [{ scale: 1 }],
-      easing: Easing.elastic(0.7),
-    },
-  });
-
-  const image = <Image style={styles.image} source={require('@/assets/images/expo-logo.png')} />;
-
-  return animate ? (
-    <Animated.View
-      entering={splashKeyframe.duration(DURATION).withCallback((finished) => {
-        'worklet';
-        if (finished) {
-          scheduleOnRN(setVisible, false);
-        }
-      })}
-      style={styles.splashOverlay}>
-      {image}
-    </Animated.View>
-  ) : (
-    <View
-      onLayout={() => {
-        SplashScreen.hideAsync().finally(() => {
-          setAnimate(true);
-        });
-      }}
-      style={styles.splashOverlay}>
-      {image}
-    </View>
+  return (
+    <NativeAnimated.View
+      onLayout={() => setIsLayoutReady(true)}
+      pointerEvents="none"
+      style={[styles.splashOverlay, { opacity }]}>
+      <Image style={styles.splashImage} source={require('@/assets/images/splash-icon.png')} />
+    </NativeAnimated.View>
   );
 }
 
@@ -131,6 +118,10 @@ const styles = StyleSheet.create({
     width: 76,
     height: 71,
   },
+  splashImage: {
+    height: 200,
+    width: 200,
+  },
   background: {
     borderRadius: 40,
     experimental_backgroundImage: `linear-gradient(180deg, #3C9FFE, #0274DF)`,
@@ -140,7 +131,7 @@ const styles = StyleSheet.create({
   },
   splashOverlay: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: '#208AEF',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 1000,

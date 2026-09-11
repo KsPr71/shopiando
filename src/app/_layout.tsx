@@ -9,7 +9,7 @@ import { AuthProvider } from '@/contexts/auth-context';
 import { ThemeModeProvider, useThemeMode } from '@/contexts/theme-context';
 import { DatabaseProvider } from '@/database/database-provider';
 
-SplashScreen.preventAutoHideAsync();
+void SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function TabLayout() {
   return (

@@ -25,22 +25,30 @@ export function AuthProvider({ children }: PropsWithChildren) {
       return;
     }
 
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      if (data.session?.user) {
-        void syncCurrentUserDirectoryProfile(data.session.user).catch(() => {});
-        void getDirectoryUsers().catch(() => {});
-        void registerPushToken(data.session.user.id).catch(() => {});
-      }
-      setIsReady(true);
-    });
+    supabase.auth.getSession()
+      .then(({ data }) => {
+        setSession(data.session);
+        if (data.session?.user) {
+          void syncCurrentUserDirectoryProfile(data.session.user).catch(() => {});
+          void getDirectoryUsers().catch(() => {});
+          void registerPushToken(data.session.user.id).catch((error) => {
+            console.warn('No se pudo registrar el token de notificaciones.', error);
+          });
+        }
+      })
+      .catch((error) => {
+        console.warn('No se pudo restaurar la sesiÃ³n.', error);
+      })
+      .finally(() => setIsReady(true));
 
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
       if (nextSession?.user) {
         void syncCurrentUserDirectoryProfile(nextSession.user).catch(() => {});
         void getDirectoryUsers().catch(() => {});
-        void registerPushToken(nextSession.user.id).catch(() => {});
+        void registerPushToken(nextSession.user.id).catch((error) => {
+          console.warn('No se pudo registrar el token de notificaciones.', error);
+        });
       }
       setIsReady(true);
     });

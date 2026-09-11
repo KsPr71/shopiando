@@ -129,18 +129,7 @@ export async function addProduct(input: {
     throw new Error('Inicia sesión para añadir productos.');
   }
 
-  let imagePath: string | null = null;
-  if (input.image) {
-    const image = await optimizeImageForUpload(input.image);
-    imagePath = `${userData.user.id}/${Date.now()}.${image.extension}`;
-    const content = await new File(image.uri).arrayBuffer();
-    const { error: uploadError } = await client.storage
-      .from('product-images')
-      .upload(imagePath, content, { contentType: image.contentType });
-    if (uploadError) {
-      throw uploadError;
-    }
-  }
+  const imagePath = await uploadProductImage(client, userData.user.id, input.image);
 
   const { data, error } = await client
     .from('products')
@@ -178,22 +167,35 @@ export async function updateProduct(productId: string, input: {
   unitType: ProductUnitType;
   packageQuantity: number;
   supplierId: string;
+  image: ImagePicker.ImagePickerAsset | null;
 }): Promise<Product> {
   if (!supabase) {
     throw new Error('Configura Supabase para editar productos.');
   }
 
-  const { data, error } = await supabase
+  const client = supabase;
+  const { data: userData, error: userError } = await client.auth.getUser();
+  if (userError || !userData.user) {
+    throw new Error('Inicia sesión para editar productos.');
+  }
+
+  const imagePath = await uploadProductImage(client, userData.user.id, input.image);
+  const changes: Record<string, unknown> = {
+    name: input.name.trim(),
+    description: input.description.trim(),
+    category: input.category,
+    price_cents: input.priceCents,
+    unit_type: input.unitType,
+    package_quantity: input.packageQuantity,
+    supplier_id: input.supplierId,
+  };
+  if (imagePath) {
+    changes.image_path = imagePath;
+  }
+
+  const { data, error } = await client
     .from('products')
-    .update({
-      name: input.name.trim(),
-      description: input.description.trim(),
-      category: input.category,
-      price_cents: input.priceCents,
-      unit_type: input.unitType,
-      package_quantity: input.packageQuantity,
-      supplier_id: input.supplierId,
-    })
+    .update(changes)
     .eq('id', productId)
     .select('id, owner_id, supplier_id, name, description, category, price_cents, unit_type, package_quantity, is_available, image_path')
     .single();
@@ -201,7 +203,7 @@ export async function updateProduct(productId: string, input: {
     throw error;
   }
 
-  const result = await toProduct(supabase, data as ProductRow);
+  const result = await toProduct(client, data as ProductRow);
   await upsertCachedProduct(result);
   notifyProductCatalogChanged({ type: 'upsert', product: result });
   return result;
@@ -328,12 +330,33 @@ async function getProductImageUrl(client: NonNullable<typeof supabase>, imagePat
     return null;
   }
 
-  const { data, error } = await client.storage.from('product-images').createSignedUrl(imagePath, 60 * 60 * 12);
-  if (!error && data?.signedUrl) {
-    return data.signedUrl;
+  return client.storage.from('product-images').getPublicUrl(imagePath).data.publicUrl;
+}
+
+async function uploadProductImage(
+  client: NonNullable<typeof supabase>,
+  userId: string,
+  image: ImagePicker.ImagePickerAsset | null,
+): Promise<string | null> {
+  if (!image) {
+    return null;
   }
 
-  return client.storage.from('product-images').getPublicUrl(imagePath).data.publicUrl;
+  try {
+    const optimizedImage = await optimizeImageForUpload(image);
+    const imagePath = `${userId}/${Date.now()}.${optimizedImage.extension}`;
+    const content = await new File(optimizedImage.uri).arrayBuffer();
+    const { error } = await client.storage
+      .from('product-images')
+      .upload(imagePath, content, { contentType: optimizedImage.contentType });
+    if (error) {
+      throw error;
+    }
+    return imagePath;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : 'Error desconocido';
+    throw new Error(`No se pudo subir la imagen del producto: ${detail}`);
+  }
 }
 
 async function toProduct(client: NonNullable<typeof supabase>, product: ProductRow): Promise<Product> {

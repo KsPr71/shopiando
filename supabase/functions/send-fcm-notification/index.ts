@@ -46,30 +46,79 @@ export default {
     }
 
     let delivered = 0;
+    let recipientsWithoutToken = 0;
     for (const recipientId of notification.recipientIds) {
       const recipientTokens = tokensByUser.get(recipientId) ?? [];
       if (!recipientTokens.length) {
+        recipientsWithoutToken += 1;
+        const { error: noTokenError } = await ctx.supabaseAdmin
+          .from('push_notification_deliveries')
+          .upsert({
+            event_type: payload.type,
+            source_id: notification.sourceId,
+            recipient_id: recipientId,
+            delivery_status: 'no_token',
+            attempted_at: new Date().toISOString(),
+            delivered_at: null,
+            error_message: 'El destinatario no tiene un token Expo registrado.',
+          });
+        if (noTokenError) {
+          throw new Error(noTokenError.message);
+        }
         continue;
       }
-      const { data: delivery, error: deliveryError } = await ctx.supabaseAdmin
+      const { data: previousDelivery, error: previousDeliveryError } = await ctx.supabaseAdmin
         .from('push_notification_deliveries')
-        .insert({ event_type: payload.type, source_id: notification.sourceId, recipient_id: recipientId })
-        .select('recipient_id')
+        .select('delivery_status')
+        .eq('event_type', payload.type)
+        .eq('source_id', notification.sourceId)
+        .eq('recipient_id', recipientId)
         .maybeSingle();
-      if (deliveryError && deliveryError.code !== '23505') {
-        throw new Error(deliveryError.message);
+      if (previousDeliveryError) {
+        throw new Error(previousDeliveryError.message);
       }
-      if (!delivery) {
+      if (previousDelivery?.delivery_status === 'sent') {
         continue;
+      }
+
+      const { error: deliveryError } = await ctx.supabaseAdmin
+        .from('push_notification_deliveries')
+        .upsert({
+          event_type: payload.type,
+          source_id: notification.sourceId,
+          recipient_id: recipientId,
+          delivery_status: 'pending',
+          attempted_at: new Date().toISOString(),
+          delivered_at: null,
+          error_message: null,
+        });
+      if (deliveryError) {
+        throw new Error(deliveryError.message);
       }
 
       try {
         await sendExpoPushNotification(recipientTokens, notification.title, notification.body, notification.data);
+        const { error: sentError } = await ctx.supabaseAdmin
+          .from('push_notification_deliveries')
+          .update({
+            delivery_status: 'sent',
+            delivered_at: new Date().toISOString(),
+            error_message: null,
+          })
+          .eq('event_type', payload.type)
+          .eq('source_id', notification.sourceId)
+          .eq('recipient_id', recipientId);
+        if (sentError) {
+          throw new Error(sentError.message);
+        }
         delivered += recipientTokens.length;
       } catch (error) {
         await ctx.supabaseAdmin
           .from('push_notification_deliveries')
-          .delete()
+          .update({
+            delivery_status: 'failed',
+            error_message: error instanceof Error ? error.message : 'No se pudo enviar la notificaciÃ³n.',
+          })
           .eq('event_type', payload.type)
           .eq('source_id', notification.sourceId)
           .eq('recipient_id', recipientId);
@@ -77,7 +126,7 @@ export default {
       }
     }
 
-    return Response.json({ delivered });
+    return Response.json({ delivered, recipientsWithoutToken });
   }),
 };
 
@@ -147,7 +196,8 @@ async function getCompletedOrderNotification(admin: any, callerId: string, order
   if (error) {
     throw new Error(error.message);
   }
-  if (!order || order.assignee_id !== callerId || order.status !== 'delivered') {
+  const isRelatedUser = order && (order.assignee_id === callerId || order.requester_id === callerId);
+  if (!order || !isRelatedUser || order.status !== 'delivered') {
     return { error: 'No puedes notificar la finalizaciÃ³n de este pedido.', status: 403 } as const;
   }
 
@@ -196,6 +246,13 @@ async function sendExpoPushNotification(tokens: string[], title: string, body: s
     });
     if (!response.ok) {
       throw new Error(`Expo Push Service respondi\u00f3 con ${response.status}.`);
+    }
+    const responseBody = await response.json() as {
+      data?: Array<{ status?: string; message?: string; details?: { error?: string } }>;
+    };
+    const failedTicket = responseBody.data?.find((ticket) => ticket.status === 'error');
+    if (failedTicket) {
+      throw new Error(failedTicket.message ?? failedTicket.details?.error ?? 'Expo rechaz\u00f3 la notificaci\u00f3n.');
     }
   }
 }

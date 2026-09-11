@@ -31,13 +31,13 @@ export function ImageZoomPreview({ accessibilityLabel, sourceUri, style, onError
   return (
     <>
       <Pressable accessibilityLabel={accessibilityLabel} accessibilityRole="button" onPress={() => setVisible(true)} style={[styles.thumbnailContainer, style as StyleProp<ViewStyle>]}>
-        <Image key={sourceUri} cachePolicy="memory-disk" contentFit="cover" onError={onError} source={{ uri: sourceUri }} style={styles.thumbnail} transition={150} />
+        <Image cachePolicy="memory-disk" contentFit="cover" onError={onError} recyclingKey={sourceUri} source={{ uri: sourceUri }} style={styles.thumbnail} transition={120} />
       </Pressable>
       <Modal transparent animationType="none" visible={visible} onRequestClose={() => setVisible(false)}>
         <Animated.View style={[styles.backdrop, { opacity }]}>
           <Pressable accessibilityLabel="Cerrar imagen ampliada" onPress={() => setVisible(false)} style={StyleSheet.absoluteFill} />
           <Animated.View style={[styles.preview, { transform: [{ scale }] }]}>
-            <Image key={sourceUri} cachePolicy="memory-disk" contentFit="contain" source={{ uri: sourceUri }} style={styles.image} transition={120} />
+            <Image cachePolicy="memory-disk" contentFit="contain" recyclingKey={sourceUri} source={{ uri: sourceUri }} style={styles.image} transition={120} />
             <Pressable accessibilityLabel="Cerrar imagen ampliada" onPress={() => setVisible(false)} style={styles.closeButton}>
               <ThemedText style={styles.closeText}>×</ThemedText>
             </Pressable>
