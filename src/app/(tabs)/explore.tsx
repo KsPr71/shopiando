@@ -7,7 +7,9 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -316,9 +318,10 @@ export default function WarehouseScreen() {
       <SideMenu visible={isMenuVisible} userEmail={currentUser.email} onClose={() => setIsMenuVisible(false)} onSignOut={signOut} />
 
       <Modal transparent animationType="slide" visible={isItemModalVisible} onRequestClose={() => setIsItemModalVisible(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'android' ? 'height' : 'padding'} style={styles.modalKeyboard}>
         <View style={styles.backdrop}><ThemedView type="backgroundElement" style={styles.modal}>
           <ThemedText style={styles.modalTitle}>{editingItem ? 'Editar artículo' : 'Nuevo artículo'}</ThemedText>
-          <ScrollView contentContainerStyle={styles.modalContent} showsVerticalScrollIndicator={false}>
+          <ScrollView contentContainerStyle={styles.modalContent} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             <Pressable onPress={chooseImage} style={[styles.imagePicker, { borderColor: theme.backgroundSelected }]}>{itemImage ? <Image source={{ uri: itemImage.uri }} contentFit="cover" style={styles.imagePreview} /> : <ThemedText themeColor="textSecondary">Seleccionar imagen</ThemedText>}</Pressable>
             <TextInput value={itemName} onChangeText={setItemName} placeholder="Nombre del artículo" placeholderTextColor={theme.textSecondary} style={[styles.input, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]} />
             <TextInput value={itemQuantity} onChangeText={setItemQuantity} keyboardType="decimal-pad" placeholder="Cantidad" placeholderTextColor={theme.textSecondary} style={[styles.input, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]} />
@@ -331,27 +334,36 @@ export default function WarehouseScreen() {
             <Pressable onPress={() => setIsItemModalVisible(false)} style={styles.cancelButton}><ThemedText themeColor="info" style={styles.cancelButtonText}>Cancelar</ThemedText></Pressable>
           </ScrollView>
         </ThemedView></View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal transparent animationType="fade" visible={isWarehouseModalVisible} onRequestClose={() => setIsWarehouseModalVisible(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'android' ? 'height' : 'padding'} style={styles.modalKeyboard}>
         <View style={styles.backdrop}><ThemedView type="backgroundElement" style={styles.modal}>
+          <ScrollView contentContainerStyle={styles.modalContent} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <ThemedText style={styles.modalTitle}>Nuevo almacén</ThemedText>
           <TextInput value={warehouseName} onChangeText={setWarehouseName} placeholder="Nombre" placeholderTextColor={theme.textSecondary} style={[styles.input, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]} />
           <TextInput value={warehouseLocation} onChangeText={setWarehouseLocation} placeholder="Ubicación (opcional)" placeholderTextColor={theme.textSecondary} style={[styles.input, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]} />
           <Pressable disabled={isSaving} onPress={saveWarehouse} style={[styles.saveButton, { backgroundColor: theme.primary }]}><ThemedText style={styles.saveButtonText}>Crear almacén</ThemedText></Pressable>
           <Pressable onPress={() => setIsWarehouseModalVisible(false)} style={styles.cancelButton}><ThemedText themeColor="info" style={styles.cancelButtonText}>Cancelar</ThemedText></Pressable>
+          </ScrollView>
         </ThemedView></View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal transparent animationType="fade" visible={isExtractModalVisible} onRequestClose={() => setIsExtractModalVisible(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'android' ? 'height' : 'padding'} style={styles.modalKeyboard}>
         <View style={styles.backdrop}><ThemedView type="backgroundElement" style={styles.modal}>
+          <ScrollView contentContainerStyle={styles.modalContent} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <ThemedText style={styles.modalTitle}>Extraer {extractingItem?.name}</ThemedText>
           <ThemedText themeColor="textSecondary" style={styles.extractCopy}>Disponible: {formatQuantity(extractingItem?.quantity ?? 0)} {formatUnit(extractingItem?.unitType ?? 'unit')}</ThemedText>
           <TextInput value={extractedQuantity} onChangeText={setExtractedQuantity} keyboardType="decimal-pad" placeholder="Cantidad a extraer" placeholderTextColor={theme.textSecondary} style={[styles.input, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]} />
           {error ? <ThemedText style={[styles.modalError, { color: theme.info }]}>{error}</ThemedText> : null}
           <Pressable disabled={isSaving} onPress={saveExtraction} style={[styles.saveButton, { backgroundColor: theme.primary }]}>{isSaving ? <ActivityIndicator color="#FFFFFF" /> : <ThemedText style={styles.saveButtonText}>Registrar extracción</ThemedText>}</Pressable>
           <Pressable onPress={() => setIsExtractModalVisible(false)} style={styles.cancelButton}><ThemedText themeColor="info" style={styles.cancelButtonText}>Cancelar</ThemedText></Pressable>
+          </ScrollView>
         </ThemedView></View>
+        </KeyboardAvoidingView>
       </Modal>
     </ThemedView>
   );
@@ -404,5 +416,5 @@ const styles = StyleSheet.create({
   iconButton: { alignItems: 'center', borderRadius: 18, borderWidth: 1, height: 36, justifyContent: 'center', width: 36 }, addButton: { alignItems: 'center', borderRadius: 18, height: 36, justifyContent: 'center', width: 36 }, addButtonText: { color: '#FFFFFF', fontSize: 24, lineHeight: 26 }, materialIcon: { fontFamily: 'MaterialSymbols', fontSize: 21, lineHeight: 24, textAlign: 'center' },
   content: { alignSelf: 'center', flexGrow: 1, maxWidth: MaxContentWidth, padding: Spacing.three, paddingBottom: Spacing.four, width: '100%' }, itemScroll: { flex: 1 }, warehouseGroups: { gap: Spacing.three }, warehouseGroup: { gap: Spacing.two }, warehouseHeader: { borderBottomWidth: StyleSheet.hairlineWidth, paddingBottom: Spacing.one }, ownerGroupInfo: { alignItems: 'center', flexDirection: 'row', gap: Spacing.two }, ownerGroupAvatar: { alignItems: 'center', backgroundColor: '#FFF1F1', borderRadius: 23, borderWidth: 2, height: 46, justifyContent: 'center', overflow: 'hidden', width: 46 }, ownerGroupAvatarImage: { height: '100%', width: '100%' }, ownerGroupAvatarInitial: { color: '#4D96FF', fontSize: 16, fontWeight: '800' }, warehouseTitle: { fontSize: 17, fontWeight: '800' }, warehouseLocation: { fontSize: 12, marginTop: 2 }, itemList: { gap: Spacing.two }, emptyState: { paddingVertical: Spacing.four, textAlign: 'center' }, feedback: { fontSize: 11, marginBottom: Spacing.two, textAlign: 'center' },
   itemCard: { alignItems: 'stretch', backgroundColor: '#FFFFFF', borderColor: '#EAE6DF', borderRadius: Spacing.three, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', minHeight: 128, padding: Spacing.two }, extractedCard: { opacity: 0.62 }, itemImage: { borderRadius: Spacing.two, height: 112, width: 112 }, imageFallback: { alignItems: 'center', backgroundColor: '#EEF1F3', borderRadius: Spacing.two, height: 112, justifyContent: 'center', width: 112 }, imageFallbackText: { color: '#4D96FF', fontSize: 26, fontWeight: '800' }, itemBody: { alignSelf: 'stretch', flex: 1, justifyContent: 'space-between', paddingLeft: Spacing.three }, itemName: { fontSize: 16, fontWeight: '800' }, itemMeta: { fontSize: 12, marginTop: 2 }, dateRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.one, marginTop: 3 }, itemDate: { fontSize: 10 }, cardFooter: { alignItems: 'center', flexDirection: 'row', justifyContent: 'flex-end' }, actionStack: { alignItems: 'center', backgroundColor: '#FFFCF5', borderRadius: Spacing.two, flexDirection: 'row', gap: Spacing.one, paddingHorizontal: Spacing.one, paddingVertical: 2 }, status: { color: '#258D42', fontSize: 10, fontWeight: '800' }, extractedStatus: { color: '#8A5D00' }, actions: { flexDirection: 'row', gap: 2 }, actionButton: { alignItems: 'center', height: 26, justifyContent: 'center', width: 26 },
-  backdrop: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.42)', flex: 1, justifyContent: 'center', padding: Spacing.four }, modal: { borderRadius: Spacing.four, gap: Spacing.three, maxHeight: '88%', maxWidth: 440, padding: Spacing.four, width: '100%' }, modalContent: { gap: Spacing.two }, modalTitle: { fontSize: 21, fontWeight: '800' }, imagePicker: { alignItems: 'center', borderRadius: Spacing.two, borderStyle: 'dashed', borderWidth: 1, height: 100, justifyContent: 'center', overflow: 'hidden' }, imagePreview: { height: '100%', width: '100%' }, input: { borderRadius: Spacing.two, borderWidth: 1, fontSize: 16, minHeight: 48, paddingHorizontal: Spacing.two }, unitRow: { alignItems: 'center', flexDirection: 'row', gap: Spacing.one }, fieldLabel: { fontSize: 13, fontWeight: '700' }, optionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.one }, option: { borderRadius: 14, borderWidth: 1, paddingHorizontal: Spacing.two, paddingVertical: Spacing.one }, optionText: { fontSize: 12, fontWeight: '700' }, optionTextSelected: { color: '#FFFFFF' }, ownerField: { gap: Spacing.one }, ownerSelect: { alignItems: 'center', borderRadius: Spacing.two, borderWidth: 1, flexDirection: 'row', justifyContent: 'space-between', minHeight: 48, paddingHorizontal: Spacing.two }, ownerValue: { flex: 1, fontSize: 15 }, ownerChevron: { fontSize: 18 }, ownerOptions: { borderRadius: Spacing.two, borderWidth: 1, overflow: 'hidden' }, ownerOption: { minHeight: 44, justifyContent: 'center', paddingHorizontal: Spacing.two }, modalError: { fontSize: 13, textAlign: 'center' }, saveButton: { alignItems: 'center', borderRadius: Spacing.two, height: 48, justifyContent: 'center' }, saveButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' }, cancelButton: { alignItems: 'center', paddingVertical: Spacing.one }, cancelButtonText: { fontSize: 15, fontWeight: '800' }, deleteButton: { alignItems: 'center', paddingVertical: Spacing.one }, deleteButtonText: { color: '#C2410C', fontSize: 14, fontWeight: '800' }, disabled: { opacity: 0.45 }, extractCopy: { fontSize: 14 },
+  backdrop: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.42)', flex: 1, justifyContent: 'center', padding: Spacing.four }, modalKeyboard: { flex: 1 }, modal: { borderRadius: Spacing.four, gap: Spacing.three, maxHeight: '88%', maxWidth: 440, padding: Spacing.four, width: '100%' }, modalContent: { flexGrow: 1, gap: Spacing.two, paddingBottom: Spacing.four }, modalTitle: { fontSize: 21, fontWeight: '800' }, imagePicker: { alignItems: 'center', borderRadius: Spacing.two, borderStyle: 'dashed', borderWidth: 1, height: 100, justifyContent: 'center', overflow: 'hidden' }, imagePreview: { height: '100%', width: '100%' }, input: { borderRadius: Spacing.two, borderWidth: 1, fontSize: 16, minHeight: 48, paddingHorizontal: Spacing.two }, unitRow: { alignItems: 'center', flexDirection: 'row', gap: Spacing.one }, fieldLabel: { fontSize: 13, fontWeight: '700' }, optionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.one }, option: { borderRadius: 14, borderWidth: 1, paddingHorizontal: Spacing.two, paddingVertical: Spacing.one }, optionText: { fontSize: 12, fontWeight: '700' }, optionTextSelected: { color: '#FFFFFF' }, ownerField: { gap: Spacing.one }, ownerSelect: { alignItems: 'center', borderRadius: Spacing.two, borderWidth: 1, flexDirection: 'row', justifyContent: 'space-between', minHeight: 48, paddingHorizontal: Spacing.two }, ownerValue: { flex: 1, fontSize: 15 }, ownerChevron: { fontSize: 18 }, ownerOptions: { borderRadius: Spacing.two, borderWidth: 1, overflow: 'hidden' }, ownerOption: { minHeight: 44, justifyContent: 'center', paddingHorizontal: Spacing.two }, modalError: { fontSize: 13, textAlign: 'center' }, saveButton: { alignItems: 'center', borderRadius: Spacing.two, height: 48, justifyContent: 'center' }, saveButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' }, cancelButton: { alignItems: 'center', paddingVertical: Spacing.one }, cancelButtonText: { fontSize: 15, fontWeight: '800' }, deleteButton: { alignItems: 'center', paddingVertical: Spacing.one }, deleteButtonText: { color: '#C2410C', fontSize: 14, fontWeight: '800' }, disabled: { opacity: 0.45 }, extractCopy: { fontSize: 14 },
 });

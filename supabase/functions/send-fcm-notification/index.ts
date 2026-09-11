@@ -201,6 +201,16 @@ async function getCompletedOrderNotification(admin: any, callerId: string, order
     return { error: 'No puedes notificar la finalizaciÃ³n de este pedido.', status: 403 } as const;
   }
 
+  const { data: orderItems, error: itemsError } = await admin
+    .from('purchase_order_items')
+    .select('product_name, quantity')
+    .eq('order_id', order.id)
+    .order('created_at', { ascending: true });
+  if (itemsError) {
+    throw new Error(itemsError.message);
+  }
+  const body = buildCompletedOrderBody(orderItems ?? []);
+
   const notificationId = `completion-${order.id}`;
   const { error: notificationError } = await admin
     .from('purchase_order_notifications')
@@ -209,7 +219,7 @@ async function getCompletedOrderNotification(admin: any, callerId: string, order
       recipient_id: order.requester_id,
       order_id: order.id,
       title: 'Pedido completado',
-      body: 'Tu pedido fue comprado y completado.',
+      body,
       created_at: new Date().toISOString(),
       read_at: null,
     });
@@ -221,9 +231,28 @@ async function getCompletedOrderNotification(admin: any, callerId: string, order
     recipientIds: [order.requester_id],
     sourceId: order.id,
     title: 'Pedido completado',
-    body: 'Tu pedido fue comprado y completado.',
+    body,
     data: { type: 'purchase_order_completed', orderId: order.id },
   };
+}
+
+function buildCompletedOrderBody(items: Array<{ product_name: string; quantity: number }>): string {
+  if (!items.length) {
+    return 'Tu pedido fue comprado y completado.';
+  }
+
+  const products = items
+    .slice(0, 3)
+    .map((item) => `${item.product_name.trim()} × ${formatNotificationQuantity(Number(item.quantity))}`)
+    .filter(Boolean);
+  const remaining = items.length - products.length;
+  const productSummary = `${products.join(', ')}${remaining > 0 ? ` y ${remaining} más` : ''}`;
+  const quantityLabel = items.length === 1 ? '1 producto' : `${items.length} productos`;
+  return `Pedido completado: ${quantityLabel}${productSummary ? ` (${productSummary})` : ''}.`;
+}
+
+function formatNotificationQuantity(quantity: number): string {
+  return Number.isInteger(quantity) ? String(quantity) : quantity.toFixed(2).replace(/\.00$/, '');
 }
 
 async function sendExpoPushNotification(tokens: string[], title: string, body: string, data: Record<string, string>): Promise<void> {

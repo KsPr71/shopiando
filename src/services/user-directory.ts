@@ -94,12 +94,20 @@ export async function getDirectoryUsers(): Promise<DirectoryUser[]> {
   if (!supabase) {
     return [];
   }
-  const { data, error } = await supabase.from('user_profiles').select('id, display_name').order('display_name');
+  const { data, error } = await supabase
+    .from('user_profiles')
+    .select('id, display_name, full_name, phone, birth_date, address, gender, avatar_path')
+    .order('display_name');
   if (error) {
     throw new Error(error.message);
   }
-  const users = (data ?? []).map((profile) => ({ id: profile.id, name: profile.display_name.trim() || 'Usuario' }));
+  const remoteProfiles = (data ?? []) as Array<RemoteDirectoryProfile & { id: string }>;
+  const users = remoteProfiles.map((profile) => ({
+    id: profile.id,
+    name: profile.full_name.trim() || profile.display_name.trim() || 'Usuario',
+  }));
   await upsertLocalDirectoryUsers(users);
+  await Promise.all(remoteProfiles.map((profile) => upsertLocalProfileDetails(profile.id, profile)));
   return users;
 }
 

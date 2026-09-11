@@ -2,7 +2,7 @@ import { Redirect } from 'expo-router';
 import { useFonts } from 'expo-font';
 import { MaterialSymbols_400Regular } from '@expo-google-fonts/material-symbols';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { SideMenu } from '@/components/side-menu';
@@ -81,7 +81,8 @@ export default function SuppliersScreen() {
           </View>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'android' ? 'height' : 'padding'} style={styles.keyboard}>
+        <ScrollView contentContainerStyle={styles.content} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled">
           <View style={[styles.formCard, { backgroundColor: theme.backgroundElement, borderColor: theme.backgroundSelected }]}>
             <Pressable accessibilityRole="button" onPress={() => setIsFormExpanded((current) => !current)} style={styles.accordionHeader}>
               <View style={styles.accordionTitle}>
@@ -113,6 +114,7 @@ export default function SuppliersScreen() {
             </View>
           )) : <ThemedText themeColor="textSecondary">Aún no hay proveedores registrados.</ThemedText>}
         </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
       <SideMenu onClose={() => setIsMenuVisible(false)} onSignOut={signOut} userEmail={user.email} visible={isMenuVisible} />
     </ThemedView>
@@ -122,13 +124,14 @@ export default function SuppliersScreen() {
 const styles = StyleSheet.create({
   container: { backgroundColor: '#FAF9F6', flex: 1 },
   safeArea: { flex: 1 },
+  keyboard: { flex: 1 },
   centered: { alignItems: 'center', flex: 1, justifyContent: 'center' },
   header: { alignItems: 'center', flexDirection: 'row', gap: Spacing.two, paddingHorizontal: Spacing.four, paddingVertical: Spacing.three },
   menuButton: { alignItems: 'center', borderRadius: Spacing.two, height: 42, justifyContent: 'center', width: 42 },
   menuIcon: { fontFamily: 'MaterialSymbols', fontSize: 26, lineHeight: 28, textAlign: 'center' },
   title: { fontSize: 22, fontWeight: '800' },
   subtitle: { fontSize: 13, marginTop: 2 },
-  content: { gap: Spacing.three, padding: Spacing.four, paddingBottom: Spacing.six },
+  content: { flexGrow: 1, gap: Spacing.three, padding: Spacing.four, paddingBottom: 140 },
   formCard: { borderRadius: Spacing.three, borderWidth: 1, overflow: 'hidden' },
   accordionHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', minHeight: 54, paddingHorizontal: Spacing.three },
   accordionTitle: { alignItems: 'center', flexDirection: 'row', gap: Spacing.two },

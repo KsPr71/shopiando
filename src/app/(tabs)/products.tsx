@@ -7,7 +7,9 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -577,8 +579,10 @@ export default function ProductsScreen() {
         </View>
       </Modal>
       <Modal transparent animationType="slide" visible={isAddModalVisible} onRequestClose={() => setIsAddModalVisible(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'android' ? 'height' : 'padding'} style={styles.modalKeyboard}>
         <View style={styles.modalBackdrop}>
           <ThemedView type="backgroundElement" style={styles.assigneeModal}>
+            <ScrollView contentContainerStyle={styles.modalFormContent} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             <ThemedText style={styles.assigneeTitle}>{editingProduct ? 'Editar producto' : 'Nuevo producto'}</ThemedText>
             <Pressable accessibilityRole="button" onPress={chooseProductImage} style={[styles.imagePicker, { borderColor: theme.backgroundSelected }]}>
               {newImage || editingProduct?.imageUrl ? <Image cachePolicy="memory-disk" contentFit="cover" source={{ uri: newImage?.uri ?? editingProduct!.imageUrl! }} style={styles.newImagePreview} /> : <ThemedText themeColor="textSecondary">Seleccionar imagen</ThemedText>}
@@ -616,8 +620,10 @@ export default function ProductsScreen() {
             <Pressable disabled={isSavingProduct} onPress={saveProduct} style={[styles.checkoutButton, { backgroundColor: theme.primary }, isSavingProduct && styles.disabled]}>{isSavingProduct ? <ActivityIndicator color="#FFFFFF" /> : <ThemedText style={styles.checkoutButtonText}>{editingProduct ? 'Guardar cambios' : 'Guardar producto'}</ThemedText>}</Pressable>
             {editingProduct && canManageCatalog ? <Pressable disabled={isSavingProduct} onPress={() => confirmDeleteProduct(editingProduct)} style={styles.deleteButton}><ThemedText style={styles.deleteButtonText}>Eliminar producto</ThemedText></Pressable> : null}
             <Pressable disabled={isSavingProduct} onPress={() => { setIsAddModalVisible(false); setEditingProduct(null); }} style={styles.cancelButton}><ThemedText themeColor="info" style={styles.cancelButtonText}>Cancelar</ThemedText></Pressable>
+            </ScrollView>
           </ThemedView>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
       <Modal transparent animationType="fade" visible={isSupplierPickerVisible} onRequestClose={() => setIsSupplierPickerVisible(false)}>
         <View style={styles.modalBackdrop}>
@@ -666,8 +672,10 @@ export default function ProductsScreen() {
         </View>
       </Modal>
       <Modal transparent animationType="slide" visible={isNewSupplierVisible} onRequestClose={() => setIsNewSupplierVisible(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'android' ? 'height' : 'padding'} style={styles.modalKeyboard}>
         <View style={styles.modalBackdrop}>
           <ThemedView type="backgroundElement" style={styles.assigneeModal}>
+            <ScrollView contentContainerStyle={styles.modalFormContent} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             <ThemedText style={styles.assigneeTitle}>Nuevo proveedor</ThemedText>
             <TextInput value={supplierName} onChangeText={setSupplierName} placeholder="Nombre" placeholderTextColor={theme.textSecondary} style={[styles.formInput, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]} />
             <TextInput value={supplierAddress} onChangeText={setSupplierAddress} placeholder="Dirección" placeholderTextColor={theme.textSecondary} style={[styles.formInput, { backgroundColor: theme.background, borderColor: theme.backgroundSelected, color: theme.text }]} />
@@ -675,8 +683,10 @@ export default function ProductsScreen() {
             <Pressable disabled={isSavingSupplier} onPress={saveSupplier} style={[styles.checkoutButton, { backgroundColor: theme.primary }, isSavingSupplier && styles.disabled]}>{isSavingSupplier ? <ActivityIndicator color="#FFFFFF" /> : <ThemedText style={styles.checkoutButtonText}>Guardar proveedor</ThemedText>}</Pressable>
             <Pressable onPress={() => router.push('/suppliers')} style={styles.cancelButton}><ThemedText themeColor="textSecondary" style={styles.cancelButtonText}>Gestionar proveedores</ThemedText></Pressable>
             <Pressable disabled={isSavingSupplier} onPress={() => setIsNewSupplierVisible(false)} style={styles.cancelButton}><ThemedText themeColor="info" style={styles.cancelButtonText}>Cancelar</ThemedText></Pressable>
+            </ScrollView>
           </ThemedView>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
     </ThemedView>
   );
@@ -785,6 +795,8 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.45 },
   pressed: { opacity: 0.86 },
   modalBackdrop: { alignItems: 'center', backgroundColor: 'rgba(0, 0, 0, 0.42)', flex: 1, justifyContent: 'center', padding: Spacing.four },
+  modalKeyboard: { flex: 1 },
+  modalFormContent: { flexGrow: 1, gap: Spacing.three, paddingBottom: Spacing.four },
   supplierRow: { flexDirection: 'row', gap: Spacing.two },
   supplierPicker: { alignItems: 'center', borderRadius: Spacing.two, borderWidth: 1, flex: 1, flexDirection: 'row', justifyContent: 'space-between', minHeight: 50, paddingHorizontal: Spacing.three },
   supplierPickerText: { flex: 1, fontSize: 14, fontWeight: '600' },
@@ -795,7 +807,7 @@ const styles = StyleSheet.create({
   supplierOption: { alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: 'row', justifyContent: 'space-between', minHeight: 48, paddingHorizontal: Spacing.one },
   supplierOptionName: { flex: 1, fontSize: 15, fontWeight: '600' },
   supplierOptionCheck: { fontSize: 20, fontWeight: '800', minWidth: 24, textAlign: 'right' },
-  assigneeModal: { borderRadius: Spacing.four, gap: Spacing.three, maxWidth: 420, padding: Spacing.four, width: '100%' },
+  assigneeModal: { borderRadius: Spacing.four, gap: Spacing.three, maxHeight: '90%', maxWidth: 420, padding: Spacing.four, width: '100%' },
   assigneeTitle: { fontSize: 21, fontWeight: '800' },
   assigneeCopy: { fontSize: 14, lineHeight: 20 },
   assigneeList: { gap: Spacing.two },

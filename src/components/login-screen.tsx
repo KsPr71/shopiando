@@ -35,14 +35,21 @@ export function LoginScreen() {
   const scrollViewRef = useRef<ScrollView>(null);
   const isSignIn = mode === "sign-in";
   const canSubmit =
-    email.trim().length > 0 && password.length >= 6 && (isSignIn || fullName.trim().length >= 2) && !isSubmitting;
+    email.trim().length > 0 &&
+    password.length >= 6 &&
+    (isSignIn || fullName.trim().length >= 2) &&
+    !isSubmitting;
 
   useEffect(() => {
     const showSubscription = Keyboard.addListener("keyboardDidShow", () => {
       setIsKeyboardVisible(true);
-      requestAnimationFrame(() => scrollViewRef.current?.scrollToEnd({ animated: true }));
+      requestAnimationFrame(() =>
+        scrollViewRef.current?.scrollToEnd({ animated: true }),
+      );
     });
-    const hideSubscription = Keyboard.addListener("keyboardDidHide", () => setIsKeyboardVisible(false));
+    const hideSubscription = Keyboard.addListener("keyboardDidHide", () =>
+      setIsKeyboardVisible(false),
+    );
 
     return () => {
       showSubscription.remove();
@@ -63,7 +70,10 @@ export function LoginScreen() {
     setError(null);
     setMessage(null);
     const { error: authError } = isSignIn
-      ? await supabase.auth.signInWithPassword({ email: email.trim(), password })
+      ? await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        })
       : await supabase.auth.signUp({
           email: email.trim(),
           password,
@@ -111,13 +121,18 @@ export function LoginScreen() {
         >
           <ScrollView
             ref={scrollViewRef}
-            contentContainerStyle={[styles.content, isKeyboardVisible && styles.contentWithKeyboard]}
+            contentContainerStyle={[
+              styles.content,
+              isKeyboardVisible && styles.contentWithKeyboard,
+            ]}
             onContentSizeChange={() => {
               if (isKeyboardVisible) {
                 scrollViewRef.current?.scrollToEnd({ animated: false });
               }
             }}
-            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+            keyboardDismissMode={
+              Platform.OS === "ios" ? "interactive" : "on-drag"
+            }
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
@@ -267,9 +282,7 @@ function FloatingInput(props: {
   const { label, theme, right, ...inputProps } = props;
   return (
     <View style={[styles.field, { borderColor: theme.backgroundSelected }]}>
-      <View
-        style={styles.fieldLabelWrap}
-      >
+      <View style={styles.fieldLabelWrap}>
         <ThemedText themeColor="textSecondary" style={styles.fieldLabel}>
           {label}
         </ThemedText>
@@ -298,6 +311,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 33,
     paddingTop: 28,
     paddingBottom: 76,
+    marginBottom: 250,
   },
   contentWithKeyboard: {
     justifyContent: "flex-start",
