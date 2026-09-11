@@ -199,8 +199,8 @@ export async function syncPurchaseOrdersFromSupabase(userId: string): Promise<vo
   for (const item of remoteItems) {
     itemsByOrder.set(item.order_id, [...(itemsByOrder.get(item.order_id) ?? []), item]);
   }
-  await database.withTransactionAsync(async () => {
-    const localOrders = await database.getAllAsync<{ id: string; has_pending_sync: number }>(
+  await database.withExclusiveTransactionAsync(async (transaction) => {
+    const localOrders = await transaction.getAllAsync<{ id: string; has_pending_sync: number }>(
       `SELECT request.id, CASE WHEN sync_state.order_id IS NULL THEN 0 ELSE 1 END AS has_pending_sync
        FROM purchase_requests AS request
        LEFT JOIN purchase_order_sync_state AS sync_state ON sync_state.order_id = request.id
@@ -211,12 +211,12 @@ export async function syncPurchaseOrdersFromSupabase(userId: string): Promise<vo
     const remoteOrderIds = new Set(orders.map((order) => order.id));
     for (const localOrder of localOrders) {
       if (!remoteOrderIds.has(localOrder.id) && !localOrder.has_pending_sync) {
-        await database.runAsync('DELETE FROM purchase_request_items WHERE request_id = ?', localOrder.id);
-        await database.runAsync('DELETE FROM purchase_requests WHERE id = ?', localOrder.id);
+        await transaction.runAsync('DELETE FROM purchase_request_items WHERE request_id = ?', localOrder.id);
+        await transaction.runAsync('DELETE FROM purchase_requests WHERE id = ?', localOrder.id);
       }
     }
     for (const order of orders) {
-      const pendingSync = await database.getFirstAsync<{ order_id: string }>(
+      const pendingSync = await transaction.getFirstAsync<{ order_id: string }>(
         'SELECT order_id FROM purchase_order_sync_state WHERE order_id = ?',
         order.id,
       );
@@ -224,19 +224,19 @@ export async function syncPurchaseOrdersFromSupabase(userId: string): Promise<vo
         continue;
       }
       const familyId = `family-${order.requester_id}`;
-      await database.runAsync(
+      await transaction.runAsync(
         `INSERT INTO families (id, name, created_at, updated_at) VALUES (?, 'Pedidos sincronizados', ?, ?)
          ON CONFLICT(id) DO NOTHING`,
         familyId, now, now,
       );
       for (const profileId of [order.requester_id, order.assignee_id].filter((id): id is string => Boolean(id))) {
-        await database.runAsync(
+        await transaction.runAsync(
           `INSERT INTO profiles (id, display_name, email, created_at, updated_at) VALUES (?, 'Usuario', NULL, ?, ?)
            ON CONFLICT(id) DO NOTHING`,
           profileId, now, now,
         );
       }
-      await database.runAsync(
+      await transaction.runAsync(
         `INSERT INTO purchase_requests (
           id, family_id, requester_id, assignee_id, status, notes, budget_total_cents,
           invoiced_total_cents, created_at, updated_at, delivered_at
@@ -249,7 +249,7 @@ export async function syncPurchaseOrdersFromSupabase(userId: string): Promise<vo
         order.budget_total_cents, order.invoiced_total_cents, order.created_at, order.updated_at,
       );
       for (const item of itemsByOrder.get(order.id) ?? []) {
-        await database.runAsync(
+        await transaction.runAsync(
           `INSERT INTO purchase_request_items (
             id, request_id, product_id, product_name, supplier_name, unit, quantity, estimated_unit_price_cents,
             actual_unit_price_cents, status, purchased_at, delivered_at, created_at, updated_at

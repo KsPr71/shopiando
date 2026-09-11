@@ -113,8 +113,8 @@ export async function createPurchaseOrder(
   const now = new Date().toISOString();
   const totalCents = lines.reduce((total, line) => total + (line.lineTotalCents ?? Math.round(line.priceCents * line.quantity)), 0);
 
-  await database.withTransactionAsync(async () => {
-    await database.runAsync(
+  await database.withExclusiveTransactionAsync(async (transaction) => {
+    await transaction.runAsync(
       `INSERT INTO purchase_requests (
         id, family_id, requester_id, assignee_id, status, notes,
         budget_total_cents, invoiced_total_cents, created_at, updated_at
@@ -129,7 +129,7 @@ export async function createPurchaseOrder(
     );
 
     for (const line of lines) {
-      await database.runAsync(
+      await transaction.runAsync(
         `INSERT INTO purchase_request_items (
           id, request_id, product_id, product_name, unit, quantity,
           estimated_unit_price_cents, supplier_name, status, created_at, updated_at
@@ -169,8 +169,8 @@ async function ensurePersonalFamily(userId: string, email: string | undefined, d
   const familyId = `family-${userId}`;
   const now = new Date().toISOString();
 
-  await database.withTransactionAsync(async () => {
-    await database.runAsync(
+  await database.withExclusiveTransactionAsync(async (transaction) => {
+    await transaction.runAsync(
       `INSERT INTO profiles (id, display_name, email, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET display_name = excluded.display_name, email = excluded.email, updated_at = excluded.updated_at`,
@@ -180,7 +180,7 @@ async function ensurePersonalFamily(userId: string, email: string | undefined, d
       now,
       now
     );
-    await database.runAsync(
+    await transaction.runAsync(
       `INSERT INTO families (id, name, created_at, updated_at)
        VALUES (?, 'Mi pedido', ?, ?)
        ON CONFLICT(id) DO NOTHING`,
@@ -188,7 +188,7 @@ async function ensurePersonalFamily(userId: string, email: string | undefined, d
       now,
       now
     );
-    await database.runAsync(
+    await transaction.runAsync(
       `INSERT INTO family_members (id, family_id, user_id, role, created_at, updated_at)
        VALUES (?, ?, ?, 'admin', ?, ?)
        ON CONFLICT(family_id, user_id) DO NOTHING`,
@@ -200,7 +200,7 @@ async function ensurePersonalFamily(userId: string, email: string | undefined, d
     );
 
     for (const product of DEFAULT_PRODUCTS) {
-      await database.runAsync(
+      await transaction.runAsync(
         `INSERT INTO products (
           id, family_id, name, category, unit, reference_price_cents,
           image_uri, is_active, created_at, updated_at

@@ -40,10 +40,10 @@ export async function replaceCachedProductCatalog(products: Product[]): Promise<
   await enqueue(async () => {
     try {
       const database = await getDatabase();
-      await database.withTransactionAsync(async () => {
-        await database.runAsync('DELETE FROM product_catalog_cache');
+      await database.withExclusiveTransactionAsync(async (transaction) => {
+        await transaction.runAsync('DELETE FROM product_catalog_cache');
         for (const product of products) {
-          await writeProduct(database, product);
+          await writeProduct(transaction, product);
         }
       });
     } catch {}

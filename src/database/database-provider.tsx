@@ -1,12 +1,13 @@
-import { SQLiteProvider } from 'expo-sqlite';
-import type { PropsWithChildren } from 'react';
+import { useEffect, type PropsWithChildren } from 'react';
 
-import { initializeDatabase } from '@/database/database';
+import { getDatabase } from '@/database/database';
 
 export function DatabaseProvider({ children }: PropsWithChildren) {
-  return (
-    <SQLiteProvider databaseName="shopiando.db" onInit={initializeDatabase} useSuspense>
-      {children}
-    </SQLiteProvider>
-  );
+  useEffect(() => {
+    void getDatabase().catch((error) => {
+      console.warn('No se pudo inicializar la base de datos local.', error);
+    });
+  }, []);
+
+  return children;
 }

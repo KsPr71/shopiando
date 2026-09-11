@@ -94,8 +94,8 @@ export async function getAssignedPurchaseOrders(userId: string): Promise<Assigne
 export async function setPurchaseItemPurchased(orderId: string, itemId: string, isPurchased: boolean): Promise<void> {
   const database = await getDatabase();
   const now = new Date().toISOString();
-  await database.withTransactionAsync(async () => {
-    await database.runAsync(
+  await database.withExclusiveTransactionAsync(async (transaction) => {
+    await transaction.runAsync(
       `UPDATE purchase_request_items
        SET status = ?,
            actual_unit_price_cents = CASE WHEN ? THEN estimated_unit_price_cents ELSE NULL END,
@@ -111,7 +111,7 @@ export async function setPurchaseItemPurchased(orderId: string, itemId: string, 
       orderId,
     );
 
-    const totals = await database.getFirstAsync<{ pending_items: number; invoiced_total_cents: number }>(
+    const totals = await transaction.getFirstAsync<{ pending_items: number; invoiced_total_cents: number }>(
       `SELECT
          SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_items,
          COALESCE(SUM(CASE WHEN status = 'purchased' THEN quantity * actual_unit_price_cents ELSE 0 END), 0) AS invoiced_total_cents
@@ -119,7 +119,7 @@ export async function setPurchaseItemPurchased(orderId: string, itemId: string, 
        WHERE request_id = ?`,
       orderId,
     );
-    await database.runAsync(
+    await transaction.runAsync(
       `UPDATE purchase_requests
        SET status = ?, invoiced_total_cents = ?, updated_at = ?
        WHERE id = ?`,

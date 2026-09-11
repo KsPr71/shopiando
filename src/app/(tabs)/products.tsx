@@ -38,6 +38,7 @@ import {
   getProducts,
   isProductAdmin,
   PRODUCT_CATEGORIES,
+  PRODUCT_CATEGORY_OPTIONS,
   quoteProductOrder,
   setProductAvailability,
   subscribeToProductCatalog,
@@ -64,6 +65,7 @@ export default function ProductsScreen() {
   const [isAssigneeModalVisible, setIsAssigneeModalVisible] = useState(false);
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [isSupplierPickerVisible, setIsSupplierPickerVisible] = useState(false);
+  const [isCategoryPickerVisible, setIsCategoryPickerVisible] = useState(false);
   const [isNewSupplierVisible, setIsNewSupplierVisible] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [newName, setNewName] = useState('');
@@ -430,8 +432,9 @@ export default function ProductsScreen() {
             <Pressable onPress={() => setSelectedCategory('all')} style={[styles.filterChip, { borderColor: theme.primary }, selectedCategory === 'all' && { backgroundColor: theme.primary }]}>
               <ThemedText style={[styles.filterChipText, selectedCategory === 'all' && styles.filterChipTextSelected]}>Todos</ThemedText>
             </Pressable>
-            {(categories.length ? categories : PRODUCT_CATEGORIES.map((slug) => ({ slug, name: formatCategory(slug) }))).map((category) => (
+            {(categories.length ? categories : PRODUCT_CATEGORY_OPTIONS).map((category) => (
               <Pressable key={category.slug} onPress={() => setSelectedCategory(category.slug)} style={[styles.filterChip, { borderColor: theme.primary }, selectedCategory === category.slug && { backgroundColor: theme.primary }]}>
+                <ThemedText style={[styles.filterChipIcon, selectedCategory === category.slug && styles.filterChipTextSelected]}>{symbolsLoaded ? category.icon : '•'}</ThemedText>
                 <ThemedText style={[styles.filterChipText, selectedCategory === category.slug && styles.filterChipTextSelected]}>{category.name}</ThemedText>
               </Pressable>
             ))}
@@ -596,7 +599,12 @@ export default function ProductsScreen() {
               />
               <ThemedText themeColor="textSecondary" style={styles.fieldLabel}>Libras</ThemedText>
             </View>
-            <View style={styles.categoryGrid}>{(categories.length ? categories : PRODUCT_CATEGORIES.map((slug) => ({ slug, name: formatCategory(slug) }))).map((category) => <Pressable key={category.slug} onPress={() => setNewCategory(category.slug)} style={[styles.categoryChip, { borderColor: theme.primary }, newCategory === category.slug && { backgroundColor: theme.primary }]}><ThemedText style={[styles.categoryChipText, newCategory === category.slug && styles.categoryChipTextSelected]}>{category.name}</ThemedText></Pressable>)}</View>
+            <Pressable onPress={() => setIsCategoryPickerVisible(true)} style={[styles.categoryPicker, { backgroundColor: theme.background, borderColor: theme.backgroundSelected }]}>
+              <ThemedText style={styles.categoryPickerIcon}>{symbolsLoaded ? (categories.length ? categories : PRODUCT_CATEGORY_OPTIONS).find((category) => category.slug === newCategory)?.icon ?? 'category' : '•'}</ThemedText>
+              <ThemedText style={[styles.categoryPickerText, { color: theme.text }]}>{(categories.length ? categories : PRODUCT_CATEGORY_OPTIONS).find((category) => category.slug === newCategory)?.name ?? 'Seleccionar categoría'}</ThemedText>
+              <ThemedText style={[styles.supplierPickerIcon, { color: theme.textSecondary }]}>{symbolsLoaded ? 'expand_more' : '⌄'}</ThemedText>
+            </Pressable>
+            <View style={styles.categoryGrid}>{(categories.length ? categories : PRODUCT_CATEGORY_OPTIONS).map((category) => <Pressable key={category.slug} onPress={() => setNewCategory(category.slug)} style={[styles.categoryChip, { borderColor: theme.primary }, newCategory === category.slug && { backgroundColor: theme.primary }]}><ThemedText style={[styles.categoryChipIcon, newCategory === category.slug && styles.categoryChipTextSelected]}>{symbolsLoaded ? category.icon : '•'}</ThemedText><ThemedText style={[styles.categoryChipText, newCategory === category.slug && styles.categoryChipTextSelected]}>{category.name}</ThemedText></Pressable>)}</View>
             {error ? <ThemedText style={[styles.modalError, { color: theme.info }]}>{error}</ThemedText> : null}
             <Pressable disabled={isSavingProduct} onPress={saveProduct} style={[styles.checkoutButton, { backgroundColor: theme.primary }, isSavingProduct && styles.disabled]}>{isSavingProduct ? <ActivityIndicator color="#FFFFFF" /> : <ThemedText style={styles.checkoutButtonText}>{editingProduct ? 'Guardar cambios' : 'Guardar producto'}</ThemedText>}</Pressable>
             {editingProduct && canManageCatalog ? <Pressable disabled={isSavingProduct} onPress={() => confirmDeleteProduct(editingProduct)} style={styles.deleteButton}><ThemedText style={styles.deleteButtonText}>Eliminar producto</ThemedText></Pressable> : null}
@@ -609,10 +617,44 @@ export default function ProductsScreen() {
           <ThemedView type="backgroundElement" style={styles.assigneeModal}>
             <ThemedText style={styles.assigneeTitle}>Seleccionar proveedor</ThemedText>
             <ScrollView contentContainerStyle={styles.supplierList}>
-              {suppliers.map((supplier) => <Pressable key={supplier.id} onPress={() => { setNewSupplierId(supplier.id); setIsSupplierPickerVisible(false); }} style={[styles.supplierOption, { borderColor: theme.backgroundSelected }, supplier.id === newSupplierId && { borderColor: theme.primary }]}><ThemedText style={styles.supplierOptionName}>{supplier.name}</ThemedText><ThemedText themeColor="textSecondary" style={styles.supplierOptionDetail}>{supplier.phone || supplier.address || 'Sin datos adicionales'}</ThemedText></Pressable>)}
+              {suppliers.map((supplier) => {
+                const isSelected = supplier.id === newSupplierId;
+                return (
+                  <Pressable
+                    key={supplier.id}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: isSelected }}
+                    onPress={() => { setNewSupplierId(supplier.id); setIsSupplierPickerVisible(false); }}
+                    style={[styles.supplierOption, { borderBottomColor: theme.backgroundSelected }]}
+                  >
+                    <ThemedText style={[styles.supplierOptionName, isSelected && { color: theme.primary }]}>{supplier.name}</ThemedText>
+                    <ThemedText style={[styles.supplierOptionCheck, { color: theme.primary }]}>{isSelected ? '✓' : ''}</ThemedText>
+                  </Pressable>
+                );
+              })}
             </ScrollView>
             <Pressable onPress={() => { setIsSupplierPickerVisible(false); setIsNewSupplierVisible(true); }} style={styles.cancelButton}><ThemedText style={[styles.cancelButtonText, { color: theme.primary }]}>Añadir proveedor nuevo</ThemedText></Pressable>
             <Pressable onPress={() => setIsSupplierPickerVisible(false)} style={styles.cancelButton}><ThemedText themeColor="info" style={styles.cancelButtonText}>Cancelar</ThemedText></Pressable>
+          </ThemedView>
+        </View>
+      </Modal>
+      <Modal transparent animationType="fade" visible={isCategoryPickerVisible} onRequestClose={() => setIsCategoryPickerVisible(false)}>
+        <View style={styles.modalBackdrop}>
+          <ThemedView type="backgroundElement" style={styles.assigneeModal}>
+            <ThemedText style={styles.assigneeTitle}>Seleccionar categoría</ThemedText>
+            <ScrollView contentContainerStyle={styles.supplierList}>
+              {(categories.length ? categories : PRODUCT_CATEGORY_OPTIONS).map((category) => {
+                const isSelected = category.slug === newCategory;
+                return (
+                  <Pressable key={category.slug} accessibilityRole="radio" accessibilityState={{ selected: isSelected }} onPress={() => { setNewCategory(category.slug); setIsCategoryPickerVisible(false); }} style={[styles.supplierOption, { borderBottomColor: theme.backgroundSelected }]}>
+                    <ThemedText style={[styles.categoryOptionIcon, isSelected && { color: theme.primary }]}>{symbolsLoaded ? category.icon : '•'}</ThemedText>
+                    <ThemedText style={[styles.supplierOptionName, isSelected && { color: theme.primary }]}>{category.name}</ThemedText>
+                    <ThemedText style={[styles.supplierOptionCheck, { color: theme.primary }]}>{isSelected ? '✓' : ''}</ThemedText>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+            <Pressable onPress={() => setIsCategoryPickerVisible(false)} style={styles.cancelButton}><ThemedText themeColor="info" style={styles.cancelButtonText}>Cancelar</ThemedText></Pressable>
           </ThemedView>
         </View>
       </Modal>
@@ -691,7 +733,8 @@ const styles = StyleSheet.create({
   groupCheckboxIcon: { color: '#FFFFFF', fontSize: 13, fontWeight: '900', lineHeight: 15 },
   groupBySupplierText: { fontSize: 12, fontWeight: '700' },
   supplierGroupTitle: { fontSize: 13, fontWeight: '800', marginBottom: Spacing.one, marginTop: Spacing.one },
-  filterChip: { borderRadius: 16, borderWidth: 1, paddingHorizontal: Spacing.two, paddingVertical: Spacing.one },
+  filterChip: { alignItems: 'center', borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 4, paddingHorizontal: Spacing.two, paddingVertical: Spacing.one },
+  filterChipIcon: { fontFamily: 'MaterialSymbols', fontSize: 15, lineHeight: 16 },
   filterChipText: { fontSize: 12, fontWeight: '700' },
   filterChipTextSelected: { color: '#FFFFFF' },
   emptyState: { paddingVertical: Spacing.four, textAlign: 'center' },
@@ -737,10 +780,10 @@ const styles = StyleSheet.create({
   supplierPickerIcon: { fontFamily: 'MaterialSymbols', fontSize: 22, lineHeight: 24, textAlign: 'center' },
   newSupplierButton: { alignItems: 'center', borderRadius: Spacing.two, borderWidth: 1, justifyContent: 'center', minWidth: 76, paddingHorizontal: Spacing.two },
   newSupplierButtonText: { fontSize: 13, fontWeight: '800' },
-  supplierList: { gap: Spacing.two },
-  supplierOption: { borderRadius: Spacing.two, borderWidth: 1, gap: 2, padding: Spacing.three },
-  supplierOptionName: { fontSize: 15, fontWeight: '800' },
-  supplierOptionDetail: { fontSize: 12 },
+  supplierList: { paddingVertical: Spacing.one },
+  supplierOption: { alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: 'row', justifyContent: 'space-between', minHeight: 48, paddingHorizontal: Spacing.one },
+  supplierOptionName: { flex: 1, fontSize: 15, fontWeight: '600' },
+  supplierOptionCheck: { fontSize: 20, fontWeight: '800', minWidth: 24, textAlign: 'right' },
   assigneeModal: { borderRadius: Spacing.four, gap: Spacing.three, maxWidth: 420, padding: Spacing.four, width: '100%' },
   assigneeTitle: { fontSize: 21, fontWeight: '800' },
   assigneeCopy: { fontSize: 14, lineHeight: 20 },
@@ -757,8 +800,13 @@ const styles = StyleSheet.create({
   newImagePreview: { height: '100%', width: '100%' },
   formInput: { borderRadius: Spacing.two, borderWidth: 1, fontSize: 16, minHeight: 48, paddingHorizontal: Spacing.two },
   descriptionInput: { minHeight: 82, paddingTop: Spacing.two, textAlignVertical: 'top' },
-  categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.one },
-  categoryChip: { borderRadius: 14, borderWidth: 1, paddingHorizontal: Spacing.two, paddingVertical: Spacing.one },
+  categoryGrid: { display: 'none' },
+  categoryPicker: { alignItems: 'center', borderRadius: Spacing.two, borderWidth: 1, flexDirection: 'row', minHeight: 50, paddingHorizontal: Spacing.three },
+  categoryPickerIcon: { fontFamily: 'MaterialSymbols', fontSize: 19, lineHeight: 21, marginRight: Spacing.two },
+  categoryPickerText: { flex: 1, fontSize: 14, fontWeight: '600' },
+  categoryOptionIcon: { fontFamily: 'MaterialSymbols', fontSize: 18, lineHeight: 20, marginRight: Spacing.two },
+  categoryChip: { alignItems: 'center', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 4, paddingHorizontal: Spacing.two, paddingVertical: Spacing.one },
+  categoryChipIcon: { fontFamily: 'MaterialSymbols', fontSize: 15, lineHeight: 16 },
   categoryChipText: { fontSize: 12, fontWeight: '700' },
   categoryChipTextSelected: { color: '#FFFFFF' },
   fieldLabel: { fontSize: 13, fontWeight: '700' },

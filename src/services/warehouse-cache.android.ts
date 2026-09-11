@@ -55,14 +55,14 @@ export async function getCachedWarehouseItems(): Promise<WarehouseItem[]> {
 
 export async function replaceCachedWarehouseInventory(warehouses: Warehouse[], items: WarehouseItem[]): Promise<void> {
   const database = await getDatabase();
-  await database.withTransactionAsync(async () => {
-    await database.runAsync('DELETE FROM warehouse_cache');
-    await database.runAsync('DELETE FROM warehouse_item_cache');
+  await database.withExclusiveTransactionAsync(async (transaction) => {
+    await transaction.runAsync('DELETE FROM warehouse_cache');
+    await transaction.runAsync('DELETE FROM warehouse_item_cache');
     for (const warehouse of warehouses) {
-      await writeWarehouse(database, warehouse);
+      await writeWarehouse(transaction, warehouse);
     }
     for (const item of items) {
-      await writeWarehouseItem(database, item);
+      await writeWarehouseItem(transaction, item);
     }
   });
 }

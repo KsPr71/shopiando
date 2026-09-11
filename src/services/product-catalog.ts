@@ -12,13 +12,31 @@ import { supabase } from '@/services/supabase';
 import { notifyProductCreated } from '@/services/push-notifications';
 import { optimizeImageForUpload } from '@/services/image-upload';
 
-export const PRODUCT_CATEGORIES = ['carnicos', 'vegetales', 'viandas', 'legumbres'] as const;
 export type ProductCategory = string;
 
 export type ProductCategoryOption = {
   slug: ProductCategory;
   name: string;
+  icon: string;
 };
+
+export const PRODUCT_CATEGORY_OPTIONS: ProductCategoryOption[] = [
+  { slug: 'carnicos', name: 'Cárnicos', icon: 'restaurant' },
+  { slug: 'vegetales', name: 'Vegetales', icon: 'eco' },
+  { slug: 'viandas', name: 'Viandas', icon: 'nutrition' },
+  { slug: 'legumbres', name: 'Legumbres', icon: 'grain' },
+  { slug: 'limpieza', name: 'Limpieza', icon: 'cleaning_services' },
+  { slug: 'ferreteria', name: 'Ferretería', icon: 'handyman' },
+  { slug: 'helados_y_dulces', name: 'Helados y dulces', icon: 'icecream' },
+  { slug: 'pizzas', name: 'Pizzas', icon: 'local_pizza' },
+  { slug: 'bebidas', name: 'Bebidas', icon: 'local_drink' },
+  { slug: 'lacteos_y_huevos', name: 'Lácteos y huevos', icon: 'egg_alt' },
+  { slug: 'panaderia', name: 'Panadería', icon: 'bakery_dining' },
+  { slug: 'condimentos', name: 'Condimentos', icon: 'grocery' },
+  { slug: 'mascotas', name: 'Mascotas', icon: 'pets' },
+];
+
+export const PRODUCT_CATEGORIES = PRODUCT_CATEGORY_OPTIONS.map((category) => category.slug);
 
 export type Product = {
   id: string;
@@ -58,9 +76,9 @@ export async function getProductCategories(): Promise<ProductCategoryOption[]> {
   if (!supabase) {
     throw new Error('Configura Supabase para cargar las categorías.');
   }
-  const { data, error } = await supabase.from('product_categories').select('slug, name').order('name');
+  const { data, error } = await supabase.from('product_categories').select('slug, name, icon').order('name');
   if (error) {
-    return PRODUCT_CATEGORIES.map((slug) => ({ slug, name: formatCategoryName(slug) }));
+    return PRODUCT_CATEGORY_OPTIONS;
   }
   return data as ProductCategoryOption[];
 }
