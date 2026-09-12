@@ -16,6 +16,15 @@ import { optimizeImageForUpload } from '@/services/image-upload';
 
 export type WarehouseUnitType = 'unit' | 'pound';
 export type WarehouseItemStatus = 'active' | 'extracted';
+export type WarehouseMovementType = 'entry' | 'exit';
+
+export type WarehouseItemMovement = {
+  id: string;
+  itemId: string;
+  type: WarehouseMovementType;
+  quantity: number;
+  createdAt: string;
+};
 
 export type Warehouse = {
   id: string;
@@ -61,6 +70,16 @@ type WarehouseItemRow = {
   extracted_at: string | null;
   created_at: string;
   updated_at: string;
+};
+
+type WarehouseItemMovementRow = {
+  id: string;
+  item_id: string;
+  action: 'created' | 'quantity_changed' | 'extracted';
+  quantity_before: number;
+  quantity_after: number;
+  extracted_quantity: number;
+  created_at: string;
 };
 
 export function isWarehouseAdmin(user: User): boolean {
@@ -201,6 +220,33 @@ export async function deleteWarehouseItem(itemId: string): Promise<void> {
     throw new Error(error.message);
   }
   await removeCachedWarehouseItem(itemId);
+}
+
+export async function getWarehouseItemMovements(itemId: string): Promise<WarehouseItemMovement[]> {
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from('warehouse_item_movements')
+    .select('id, item_id, action, quantity_before, quantity_after, extracted_quantity, created_at')
+    .eq('item_id', itemId)
+    .order('created_at', { ascending: true });
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return ((data ?? []) as WarehouseItemMovementRow[]).map((movement) => {
+    const quantityBefore = Number(movement.quantity_before);
+    const quantityAfter = Number(movement.quantity_after);
+    const isExit = movement.action === 'extracted' || quantityAfter < quantityBefore;
+    return {
+      id: movement.id,
+      itemId: movement.item_id,
+      type: isExit ? 'exit' : 'entry',
+      quantity: isExit
+        ? Number(movement.extracted_quantity) || Math.max(quantityBefore - quantityAfter, 0)
+        : Math.max(quantityAfter - quantityBefore, 0),
+      createdAt: movement.created_at,
+    };
+  });
 }
 
 export function subscribeToWarehouseInventory(onChange: () => void, onStatus: (status: 'connecting' | 'live' | 'offline') => void): () => void {

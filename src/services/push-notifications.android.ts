@@ -1,11 +1,13 @@
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
+import { File, Paths } from 'expo-file-system';
 import { Platform } from 'react-native';
 
 import { supabase } from '@/services/supabase';
 import type { PushNotificationDebugInfo } from '@/services/push-notifications';
 
 let hasConfiguredNotifications = false;
+const pushTokenFile = new File(Paths.document, 'shopiando-expo-push-token.txt');
 type NotificationsModule = typeof import('expo-notifications');
 
 export async function registerPushToken(userId: string): Promise<void> {
@@ -42,7 +44,19 @@ export async function registerPushToken(userId: string): Promise<void> {
     throw new Error('No se encontr\u00f3 el identificador del proyecto EAS para notificaciones.');
   }
 
-  const token = (await notifications.getExpoPushTokenAsync({ projectId })).data;
+  const token = await getOrCreateLocalPushToken(notifications, projectId);
+  const { data: registeredToken, error: lookupError } = await supabase
+    .from('device_push_tokens')
+    .select('user_id')
+    .eq('token', token)
+    .maybeSingle();
+  if (lookupError) {
+    throw new Error(lookupError.message);
+  }
+  if (registeredToken?.user_id === userId) {
+    return;
+  }
+
   const now = new Date().toISOString();
   const { error } = await supabase
     .from('device_push_tokens')
@@ -67,6 +81,20 @@ function configureNotifications(notifications: NotificationsModule): void {
   hasConfiguredNotifications = true;
 }
 
+async function getOrCreateLocalPushToken(notifications: NotificationsModule, projectId: string): Promise<string> {
+  if (pushTokenFile.exists) {
+    const cachedToken = (await pushTokenFile.text()).trim();
+    if (cachedToken) {
+      return cachedToken;
+    }
+  }
+
+  const token = (await notifications.getExpoPushTokenAsync({ projectId })).data;
+  pushTokenFile.create({ intermediates: true, overwrite: true });
+  pushTokenFile.write(token);
+  return token;
+}
+
 export async function unregisterPushToken(userId: string): Promise<void> {
   if (!supabase || Platform.OS !== 'android' || !Device.isDevice) {
     return;
@@ -79,7 +107,7 @@ export async function unregisterPushToken(userId: string): Promise<void> {
   if (!projectId) {
     return;
   }
-  const token = (await notifications.getExpoPushTokenAsync({ projectId })).data;
+  const token = await getOrCreateLocalPushToken(notifications, projectId);
   const { error } = await supabase.from('device_push_tokens').delete().eq('user_id', userId).eq('token', token);
   if (error) {
     throw new Error(error.message);
@@ -113,7 +141,7 @@ export async function getPushNotificationDebugInfo(userId: string): Promise<Push
   }
 
   try {
-    const token = (await notifications.getExpoPushTokenAsync({ projectId })).data;
+    const token = await getOrCreateLocalPushToken(notifications, projectId);
     if (!supabase) {
       return createDebugInfo('Development build', true, permission.status, token, null, 'Supabase no está configurado en esta compilación.');
     }

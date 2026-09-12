@@ -23,6 +23,7 @@ export default function OrdersScreen() {
   const [isMenuVisible, setIsMenuVisible] = useState(false);
   const [orders, setOrders] = useState<PurchaseHistoryOrder[]>([]);
   const [historyType, setHistoryType] = useState<'requested' | 'assigned'>('requested');
+  const [periodFilter, setPeriodFilter] = useState<'all' | 'month' | 'week'>('all');
   const [expandedOrders, setExpandedOrders] = useState<Record<string, boolean>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -86,14 +87,23 @@ export default function OrdersScreen() {
     };
   }, [historyType, user?.id]);
 
+  const filteredOrders = useMemo(() => {
+    if (periodFilter === 'all') {
+      return orders;
+    }
+    const now = new Date();
+    const cutoff = periodFilter === 'month' ? startOfCurrentMonth(now) : startOfCurrentWeek(now);
+    return orders.filter((order) => new Date(order.createdAt) >= cutoff);
+  }, [orders, periodFilter]);
+
   const ordersByDate = useMemo(() => {
     const groups = new Map<string, PurchaseHistoryOrder[]>();
-    for (const order of orders) {
+    for (const order of filteredOrders) {
       const key = new Date(order.createdAt).toDateString();
       groups.set(key, [...(groups.get(key) ?? []), order]);
     }
     return Array.from(groups.entries());
-  }, [orders]);
+  }, [filteredOrders]);
 
   if (!isReady) {
     return <ThemedView style={styles.centered}><ActivityIndicator /></ThemedView>;
@@ -130,6 +140,16 @@ export default function OrdersScreen() {
             <Pressable accessibilityRole="button" accessibilityState={{ selected: historyType === 'assigned' }} onPress={() => setHistoryType('assigned')} style={[styles.toggleOption, historyType === 'assigned' && { backgroundColor: theme.primary }]}>
               <ThemedText style={[styles.toggleText, historyType === 'assigned' && styles.toggleTextActive]}>Asignadas</ThemedText>
             </Pressable>
+          </View>
+          <View style={[styles.periodToggle, { borderColor: theme.backgroundSelected }]}>
+            {([
+              { value: 'all', icon: 'view_list', label: 'Todos' },
+              { value: 'month', icon: 'calendar_month', label: 'Mensuales' },
+              { value: 'week', icon: 'date_range', label: 'Semanales' },
+            ] as const).map((option) => {
+              const isSelected = periodFilter === option.value;
+              return <Pressable key={option.value} accessibilityLabel={option.label} accessibilityRole="button" accessibilityState={{ selected: isSelected }} onPress={() => setPeriodFilter(option.value)} style={[styles.periodOption, { borderColor: theme.backgroundSelected }, isSelected && { backgroundColor: theme.backgroundSelected }]}><ThemedText style={[styles.periodIcon, isSelected && { color: theme.primary }]}>{symbolsLoaded ? option.icon : '•'}</ThemedText></Pressable>;
+            })}
           </View>
         </View>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -190,6 +210,17 @@ function formatDateHeading(value: string): string {
   return new Intl.DateTimeFormat('es-CU', { day: 'numeric', month: 'long' }).format(date);
 }
 
+function startOfCurrentMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function startOfCurrentWeek(date: Date): Date {
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = start.getDay();
+  start.setDate(start.getDate() - (day === 0 ? 6 : day - 1));
+  return start;
+}
+
 function formatStatus(status: string): string {
   return ({ pending: 'Pendiente', in_progress: 'En proceso', partially_delivered: 'Parcial', delivered: 'Completado', cancelled: 'Cancelado' } as Record<string, string>)[status] ?? 'Pendiente';
 }
@@ -216,12 +247,15 @@ const styles = StyleSheet.create({
   syncText: { fontSize: 10, fontWeight: '600' },
   syncButton: { alignItems: 'center', borderRadius: 18, borderWidth: 1, height: 36, justifyContent: 'center', marginLeft: 'auto', width: 36 },
   syncIcon: { fontFamily: 'MaterialSymbols', fontSize: 21, lineHeight: 24 },
-  toggleContainer: { paddingHorizontal: Spacing.three, paddingBottom: Spacing.two },
+  toggleContainer: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: Spacing.three, paddingBottom: Spacing.two },
   content: { alignSelf: 'center', flexGrow: 1, gap: Spacing.three, maxWidth: MaxContentWidth, padding: Spacing.three, paddingTop: Spacing.one, width: '100%' },
-  historyToggle: { alignSelf: 'flex-start', borderRadius: Spacing.two, flexDirection: 'row', overflow: 'hidden', padding: 2 },
-  toggleOption: { borderRadius: 6, minWidth: 88, paddingHorizontal: Spacing.two, paddingVertical: 7 },
+  historyToggle: { alignSelf: 'flex-start', borderRadius: Spacing.two, flexDirection: 'row', height: 38, overflow: 'hidden', padding: 2 },
+  toggleOption: { borderRadius: 6, justifyContent: 'center', minWidth: 88, paddingHorizontal: Spacing.two },
   toggleText: { fontSize: 12, fontWeight: '800', textAlign: 'center' },
   toggleTextActive: { color: '#FFFFFF' },
+  periodToggle: { borderRadius: Spacing.two, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', overflow: 'hidden' },
+  periodOption: { alignItems: 'center', borderRightWidth: StyleSheet.hairlineWidth, height: 38, justifyContent: 'center', width: 38 },
+  periodIcon: { fontFamily: 'MaterialSymbols', fontSize: 19, lineHeight: 21, textAlign: 'center' },
   emptyState: { fontSize: 14, paddingVertical: Spacing.four, textAlign: 'center' },
   dateGroup: { gap: Spacing.two },
   dateHeading: { fontSize: 15, fontWeight: '800', textTransform: 'capitalize' },
