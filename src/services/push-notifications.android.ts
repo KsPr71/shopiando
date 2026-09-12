@@ -209,6 +209,14 @@ export async function notifyPurchaseOrderCompleted(orderId: string): Promise<{ d
   };
 }
 
+export async function notifyPurchaseOrderCancelled(orderId: string): Promise<{ delivered: number; recipientsWithoutToken: number }> {
+  const response = await invokeNotificationFunction({ type: 'purchase_order_cancelled', orderId });
+  return {
+    delivered: Number(response?.delivered ?? 0),
+    recipientsWithoutToken: Number(response?.recipientsWithoutToken ?? 0),
+  };
+}
+
 async function invokeNotificationFunction(payload: Record<string, string>): Promise<Record<string, unknown> | null> {
   if (!supabase) {
     return null;

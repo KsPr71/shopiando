@@ -4,7 +4,8 @@ import { withSupabase } from "@supabase/server";
 type RequestBody =
   | { type: 'product_created'; productId: string }
   | { type: 'purchase_order_assigned'; orderId: string }
-  | { type: 'purchase_order_completed'; orderId: string };
+  | { type: 'purchase_order_completed'; orderId: string }
+  | { type: 'purchase_order_cancelled'; orderId: string };
 
 type PushTokenRow = { user_id: string; token: string };
 
@@ -26,7 +27,9 @@ export default {
       ? await getProductNotification(ctx.supabaseAdmin, callerId, payload.productId)
       : payload.type === 'purchase_order_assigned'
         ? await getAssignedOrderNotification(ctx.supabaseAdmin, callerId, payload.orderId)
-        : await getCompletedOrderNotification(ctx.supabaseAdmin, callerId, payload.orderId);
+        : payload.type === 'purchase_order_completed'
+          ? await getCompletedOrderNotification(ctx.supabaseAdmin, callerId, payload.orderId)
+          : await getCancelledOrderNotification(ctx.supabaseAdmin, callerId, payload.orderId);
 
     if ('error' in notification) {
       return Response.json({ error: notification.error }, { status: notification.status });
@@ -138,7 +141,8 @@ function getCallerId(claims: Record<string, unknown> | undefined): string | null
 function isValidPayload(payload: RequestBody): boolean {
   return (payload.type === 'product_created' && Boolean(payload.productId))
     || (payload.type === 'purchase_order_assigned' && Boolean(payload.orderId))
-    || (payload.type === 'purchase_order_completed' && Boolean(payload.orderId));
+    || (payload.type === 'purchase_order_completed' && Boolean(payload.orderId))
+    || (payload.type === 'purchase_order_cancelled' && Boolean(payload.orderId));
 }
 
 async function getProductNotification(admin: any, callerId: string, productId: string) {
@@ -233,6 +237,44 @@ async function getCompletedOrderNotification(admin: any, callerId: string, order
     title: 'Pedido completado',
     body,
     data: { type: 'purchase_order_completed', orderId: order.id },
+  };
+}
+
+async function getCancelledOrderNotification(admin: any, callerId: string, orderId: string) {
+  const { data: order, error } = await admin
+    .from('purchase_orders')
+    .select('id, requester_id, assignee_id, status, cancel_reason')
+    .eq('id', orderId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  const isRequester = order?.requester_id === callerId;
+  const isAssignee = order?.assignee_id === callerId;
+  if (!order || (!isRequester && !isAssignee) || order.status !== 'cancelled') {
+    return { error: 'No puedes notificar la cancelación de este pedido.', status: 403 } as const;
+  }
+
+  const recipientId = isRequester ? order.assignee_id ?? order.requester_id : order.requester_id;
+  const reason = String(order.cancel_reason ?? '').trim();
+  const body = reason ? `El pedido fue cancelado. Motivo: ${reason}` : 'El pedido fue cancelado.';
+  const { error: notificationError } = await admin
+    .from('purchase_order_notifications')
+    .upsert({
+      id: `cancellation-${order.id}`,
+      recipient_id: recipientId,
+      order_id: order.id,
+      title: 'Pedido cancelado',
+      body,
+      created_at: new Date().toISOString(),
+      read_at: null,
+    });
+  if (notificationError) throw new Error(notificationError.message);
+
+  return {
+    recipientIds: [recipientId],
+    sourceId: order.id,
+    title: 'Pedido cancelado',
+    body,
+    data: { type: 'purchase_order_cancelled', orderId: order.id },
   };
 }
 

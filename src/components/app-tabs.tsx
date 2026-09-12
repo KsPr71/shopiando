@@ -22,6 +22,7 @@ import {
 import {
   getCachedProducts,
   getProducts,
+  subscribeToLocalProductCatalogChanges,
   subscribeToProductCatalog,
 } from "@/services/product-catalog";
 
@@ -53,11 +54,13 @@ export default function AppTabs() {
 
     let isMounted = true;
     const refreshWarehouseCount = () => {
+      void getCachedWarehouseInventory().then(({ items }) => isMounted && setWarehouseItemCount(items.length)).catch(() => {});
       void getWarehouseInventory()
         .then(({ items }) => isMounted && setWarehouseItemCount(items.length))
         .catch(() => {});
     };
     const refreshProductCount = () => {
+      void getCachedProducts().then((products) => isMounted && setAvailableProductCount(products.filter((product) => product.isAvailable).length)).catch(() => {});
       void getProducts()
         .then((products) => isMounted && setAvailableProductCount(products.filter((product) => product.isAvailable).length))
         .catch(() => {});
@@ -70,10 +73,12 @@ export default function AppTabs() {
 
     const unsubscribeWarehouse = subscribeToWarehouseInventory(refreshWarehouseCount, () => {});
     const unsubscribeProducts = subscribeToProductCatalog(refreshProductCount, () => {});
+    const unsubscribeLocalProducts = subscribeToLocalProductCatalogChanges(refreshProductCount);
     return () => {
       isMounted = false;
       unsubscribeWarehouse();
       unsubscribeProducts();
+      unsubscribeLocalProducts();
     };
   }, [user]);
 

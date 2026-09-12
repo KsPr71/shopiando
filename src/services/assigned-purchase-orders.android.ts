@@ -1,7 +1,8 @@
 import { getDatabase } from '@/database/database';
-import { createOrderCompletionNotification } from '@/services/order-notifications';
+import { createOrderCancellationNotification, createOrderCompletionNotification } from '@/services/order-notifications';
 import { notifyPurchaseSummaryChanged } from '@/services/purchase-summary';
 import { markPurchaseOrderForSync, syncPurchaseOrderToSupabase } from '@/services/purchase-order-sync';
+import { supabase } from '@/services/supabase';
 
 export type AssignedPurchaseItem = {
   id: string;
@@ -18,6 +19,7 @@ export type AssignedPurchaseOrder = {
   createdAt: string;
   requesterName: string;
   requesterAvatarUri: string | null;
+  cancellationReason: string | null;
   budgetTotalCents: number;
   invoicedTotalCents: number;
   items: AssignedPurchaseItem[];
@@ -28,6 +30,7 @@ type OrderItemRow = {
   created_at: string;
   requester_name: string;
   requester_avatar_uri: string | null;
+  notes: string | null;
   budget_total_cents: number;
   invoiced_total_cents: number;
   item_id: string;
@@ -47,6 +50,7 @@ export async function getAssignedPurchaseOrders(userId: string): Promise<Assigne
        request.created_at,
        requester.display_name AS requester_name,
        local_profile.avatar_uri AS requester_avatar_uri,
+       request.notes,
        request.budget_total_cents,
        request.invoiced_total_cents,
        item.id AS item_id,
@@ -73,6 +77,7 @@ export async function getAssignedPurchaseOrders(userId: string): Promise<Assigne
       createdAt: row.created_at,
       requesterName: row.requester_name,
       requesterAvatarUri: row.requester_avatar_uri,
+      cancellationReason: row.notes,
       budgetTotalCents: Number(row.budget_total_cents),
       invoicedTotalCents: Number(row.invoiced_total_cents),
       items: [],
@@ -141,6 +146,38 @@ export async function setPurchaseItemPurchased(orderId: string, itemId: string, 
   if (isOrderCompleted && requesterId) {
     await createOrderCompletionNotification(orderId, requesterId);
   }
+  await markPurchaseOrderForSync(orderId);
+  notifyPurchaseSummaryChanged();
+  await syncPurchaseOrderToSupabase(orderId);
+}
+
+export async function cancelPurchaseOrder(orderId: string, reason: string): Promise<void> {
+  const normalizedReason = reason.trim();
+  if (normalizedReason.length < 3) {
+    throw new Error('Explica brevemente el motivo de la cancelación.');
+  }
+  const database = await getDatabase();
+  const now = new Date().toISOString();
+  const order = await database.getFirstAsync<{ requester_id: string; assignee_id: string | null }>(
+    'SELECT requester_id, assignee_id FROM purchase_requests WHERE id = ?',
+    orderId,
+  );
+  if (!order) throw new Error('No se encontró el pedido que deseas cancelar.');
+  const currentUserId = supabase ? (await supabase.auth.getUser()).data.user?.id : null;
+  const recipientId = currentUserId === order.requester_id
+    ? order.assignee_id ?? order.requester_id
+    : order.requester_id;
+  await database.withExclusiveTransactionAsync(async (transaction) => {
+    await transaction.runAsync(
+      `UPDATE purchase_requests SET status = 'cancelled', notes = ?, updated_at = ? WHERE id = ?`,
+      normalizedReason, now, orderId,
+    );
+    await transaction.runAsync(
+      `UPDATE purchase_request_items SET status = 'cancelled', updated_at = ? WHERE request_id = ? AND status = 'pending'`,
+      now, orderId,
+    );
+  });
+  await createOrderCancellationNotification(orderId, recipientId, normalizedReason);
   await markPurchaseOrderForSync(orderId);
   notifyPurchaseSummaryChanged();
   await syncPurchaseOrderToSupabase(orderId);

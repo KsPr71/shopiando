@@ -2,7 +2,7 @@ import { Redirect } from 'expo-router';
 import { MaterialSymbols_400Regular } from '@expo-google-fonts/material-symbols';
 import { useFonts } from 'expo-font';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { SideMenu } from '@/components/side-menu';
@@ -11,7 +11,9 @@ import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useAuth } from '@/contexts/auth-context';
 import { useTheme } from '@/hooks/use-theme';
+import { getSupplierImage, useSupplierImages } from '@/hooks/use-supplier-images';
 import { getAssignedPurchaseOrderHistory, getPurchaseOrderHistory, type PurchaseHistoryOrder } from '@/services/purchase-order-history';
+import { cancelPurchaseOrder } from '@/services/assigned-purchase-orders';
 import { syncPurchaseOrdersFromSupabase, syncPurchaseOrdersToSupabase } from '@/services/purchase-order-sync';
 import { subscribeToPurchaseSummaryChanges } from '@/services/purchase-summary';
 import { getDirectoryUsers } from '@/services/user-directory';
@@ -20,11 +22,15 @@ export default function OrdersScreen() {
   const [symbolsLoaded] = useFonts({ MaterialSymbols: MaterialSymbols_400Regular });
   const { isReady, user, signOut } = useAuth();
   const theme = useTheme();
+  const supplierImages = useSupplierImages(Boolean(user));
   const [isMenuVisible, setIsMenuVisible] = useState(false);
   const [orders, setOrders] = useState<PurchaseHistoryOrder[]>([]);
   const [historyType, setHistoryType] = useState<'requested' | 'assigned'>('requested');
   const [periodFilter, setPeriodFilter] = useState<'all' | 'month' | 'week'>('all');
   const [expandedOrders, setExpandedOrders] = useState<Record<string, boolean>>({});
+  const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null);
+  const [cancelReasons, setCancelReasons] = useState<Record<string, string>>({});
+  const [confirmingCancellationId, setConfirmingCancellationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'synced' | 'pending'>('pending');
@@ -105,6 +111,19 @@ export default function OrdersScreen() {
     return Array.from(groups.entries());
   }, [filteredOrders]);
 
+  async function confirmCancellation(order: PurchaseHistoryOrder) {
+    const reason = cancelReasons[order.id]?.trim() ?? '';
+    if (reason.length < 3) return;
+    setConfirmingCancellationId(order.id);
+    try {
+      await cancelPurchaseOrder(order.id, reason);
+      setOrders((current) => current.map((candidate) => candidate.id === order.id ? { ...candidate, status: 'cancelled', cancellationReason: reason } : candidate));
+      setCancellingOrderId(null);
+    } finally {
+      setConfirmingCancellationId(null);
+    }
+  }
+
   if (!isReady) {
     return <ThemedView style={styles.centered}><ActivityIndicator /></ThemedView>;
   }
@@ -161,6 +180,8 @@ export default function OrdersScreen() {
               {groupedOrders.map((order) => {
                 const isExpanded = expandedOrders[order.id] ?? false;
                 const initial = order.assigneeName.trim().charAt(0).toUpperCase();
+                const isCancelled = order.status === 'cancelled';
+                const isDelivered = order.status === 'delivered';
                 return (
                   <ThemedView key={order.id} type="backgroundElement" style={[styles.orderCard, { borderColor: theme.primary }]}>
                     <Pressable accessibilityRole="button" onPress={() => setExpandedOrders((current) => ({ ...current, [order.id]: !isExpanded }))} style={styles.orderHeader}>
@@ -169,8 +190,8 @@ export default function OrdersScreen() {
                       </View>
                       <View style={styles.orderInfo}>
                         <ThemedText style={styles.assigneeName}>{order.assigneeName}</ThemedText>
-                        <View style={[styles.orderStatusChip, { backgroundColor: order.status === 'delivered' ? '#DDF5E8' : '#FFF1CC' }]}>
-                          <ThemedText style={[styles.orderStatusChipText, { color: order.status === 'delivered' ? theme.success : '#9A6700' }]}>{order.status === 'delivered' ? 'Terminado' : 'Pendiente'}</ThemedText>
+                        <View style={[styles.orderStatusChip, { backgroundColor: isCancelled ? '#FDE2E2' : isDelivered ? '#DDF5E8' : '#FFF1CC' }]}>
+                          <ThemedText style={[styles.orderStatusChipText, { color: isCancelled ? theme.info : isDelivered ? theme.success : '#9A6700' }]}>{formatStatus(order.status)}</ThemedText>
                         </View>
                       </View>
                       <View style={styles.totalBlock}>
@@ -181,6 +202,7 @@ export default function OrdersScreen() {
                     </Pressable>
                     {isExpanded ? <View style={[styles.orderDetails, { borderTopColor: theme.backgroundSelected }]}>
                       {order.items.map((item) => <View key={item.id} style={styles.itemRow}>
+                        {getSupplierImage(supplierImages, item.supplierName) ? <Image source={{ uri: getSupplierImage(supplierImages, item.supplierName) ?? undefined }} style={styles.supplierImage} /> : null}
                         <View style={styles.itemInfo}>
                           <ThemedText style={styles.itemName}>{item.name}</ThemedText>
                           <ThemedText themeColor="textSecondary" style={styles.itemSupplier}>{item.supplierName}</ThemedText>
@@ -188,6 +210,17 @@ export default function OrdersScreen() {
                         </View>
                         <ThemedText themeColor="textSecondary" style={styles.itemPrice}>{formatPrice(item.estimatedUnitPriceCents * item.quantity)}</ThemedText>
                       </View>)}
+                      {isCancelled && order.cancellationReason ? <View style={[styles.cancelReason, { backgroundColor: '#FDEFEF' }]}><ThemedText style={[styles.cancelReasonLabel, { color: theme.info }]}>Motivo:</ThemedText><ThemedText themeColor="textSecondary" style={styles.cancelReasonText}>{order.cancellationReason}</ThemedText></View> : null}
+                      {!isCancelled && !isDelivered ? <View style={[styles.cancelSection, { borderTopColor: theme.backgroundSelected }]}>
+                        <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: cancellingOrderId === order.id }} onPress={() => setCancellingOrderId((current) => current === order.id ? null : order.id)} style={styles.cancelToggle}>
+                          <View style={[styles.cancelCheckbox, { borderColor: cancellingOrderId === order.id ? theme.info : theme.textSecondary, backgroundColor: cancellingOrderId === order.id ? theme.info : 'transparent' }]}><ThemedText style={styles.cancelCheck}>{cancellingOrderId === order.id ? '✓' : ''}</ThemedText></View>
+                          <ThemedText style={[styles.cancelLabel, { color: theme.info }]}>Cancelado</ThemedText>
+                        </Pressable>
+                        {cancellingOrderId === order.id ? <View style={styles.cancelForm}>
+                          <TextInput value={cancelReasons[order.id] ?? ''} onChangeText={(value) => setCancelReasons((current) => ({ ...current, [order.id]: value }))} placeholder="Motivo de la cancelación" placeholderTextColor={theme.textSecondary} style={[styles.cancelInput, { borderColor: theme.backgroundSelected, color: theme.text }]} />
+                          <Pressable disabled={confirmingCancellationId === order.id || (cancelReasons[order.id]?.trim().length ?? 0) < 3} onPress={() => void confirmCancellation(order)} style={[styles.cancelConfirm, { backgroundColor: theme.info }, (confirmingCancellationId === order.id || (cancelReasons[order.id]?.trim().length ?? 0) < 3) && styles.disabled]}><ThemedText style={styles.cancelConfirmText}>Confirmar</ThemedText></Pressable>
+                        </View> : null}
+                      </View> : null}
                       <View style={styles.totalsRow}>
                         <ThemedText themeColor="textSecondary" style={styles.spentLabel}>Gastado</ThemedText>
                         <ThemedText style={[styles.spentValue, { color: theme.success }]}>{formatPrice(order.invoicedTotalCents)}</ThemedText>
@@ -274,11 +307,24 @@ const styles = StyleSheet.create({
   chevron: { fontSize: 20, lineHeight: 22 },
   orderDetails: { borderTopWidth: StyleSheet.hairlineWidth, gap: Spacing.one, padding: Spacing.three },
   itemRow: { alignItems: 'center', flexDirection: 'row', minHeight: 36 },
+  supplierImage: { borderRadius: 5, height: 30, marginRight: Spacing.one, width: 30 },
   itemInfo: { flex: 1 },
   itemName: { fontSize: 13, fontWeight: '700' },
   itemSupplier: { fontSize: 11, marginTop: 1 },
   itemQuantity: { fontSize: 11, marginTop: 1 },
   itemPrice: { fontSize: 12, fontWeight: '700' },
+  cancelReason: { borderRadius: Spacing.one, flexDirection: 'row', gap: 5, marginTop: Spacing.one, padding: Spacing.two },
+  cancelReasonLabel: { fontSize: 11, fontWeight: '800' },
+  cancelReasonText: { flex: 1, fontSize: 11 },
+  cancelSection: { borderTopWidth: StyleSheet.hairlineWidth, marginTop: Spacing.one, paddingTop: Spacing.two },
+  cancelToggle: { alignItems: 'center', alignSelf: 'flex-start', flexDirection: 'row', gap: Spacing.one, minHeight: 32 },
+  cancelCheckbox: { alignItems: 'center', borderRadius: 4, borderWidth: 1.5, height: 19, justifyContent: 'center', width: 19 },
+  cancelCheck: { color: '#FFFFFF', fontSize: 12, fontWeight: '900' },
+  cancelLabel: { fontSize: 12, fontWeight: '700' },
+  cancelForm: { alignItems: 'center', flexDirection: 'row', gap: Spacing.one, marginTop: Spacing.one },
+  cancelInput: { backgroundColor: '#FFFFFF', borderRadius: Spacing.one, borderWidth: 1, flex: 1, fontSize: 12, minHeight: 38, paddingHorizontal: Spacing.two },
+  cancelConfirm: { alignItems: 'center', borderRadius: Spacing.one, justifyContent: 'center', minHeight: 34, paddingHorizontal: Spacing.two },
+  cancelConfirmText: { color: '#FFFFFF', fontSize: 11, fontWeight: '800' },
   totalsRow: { alignItems: 'center', borderTopWidth: StyleSheet.hairlineWidth, flexDirection: 'row', justifyContent: 'space-between', marginTop: Spacing.one, paddingTop: Spacing.two },
   spentLabel: { fontSize: 12 },
   spentValue: { fontSize: 14, fontWeight: '800' },

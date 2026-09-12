@@ -74,6 +74,21 @@ export async function createOrderCompletionNotification(orderId: string, request
   notifyListeners();
 }
 
+export async function createOrderCancellationNotification(orderId: string, recipientId: string, reason: string): Promise<void> {
+  const normalizedReason = reason.trim();
+  await (await getDatabase()).runAsync(
+    `INSERT INTO order_notifications (id, recipient_id, order_id, title, body, created_at, read_at)
+     VALUES (?, ?, ?, 'Pedido cancelado', ?, ?, NULL)
+     ON CONFLICT(id) DO UPDATE SET recipient_id = excluded.recipient_id, body = excluded.body`,
+    `cancellation-${orderId}`,
+    recipientId,
+    orderId,
+    `El pedido fue cancelado. Motivo: ${normalizedReason}`,
+    new Date().toISOString(),
+  );
+  notifyListeners();
+}
+
 export async function getOrderNotifications(userId: string): Promise<OrderNotification[]> {
   const database = await getDatabase();
   const rows = await database.getAllAsync<NotificationRow>(
@@ -140,7 +155,7 @@ export async function syncOrderNotificationsToSupabase(orderId: string): Promise
   const isRequester = userData.user?.id === order?.requester_id;
   const notificationsToSync = isRequester
     ? notifications
-    : notifications.filter((notification) => notification.recipient_id === order?.requester_id && notification.title === 'Pedido completado');
+    : notifications.filter((notification) => notification.recipient_id === order?.requester_id && (notification.title === 'Pedido completado' || notification.title === 'Pedido cancelado'));
   if (!notificationsToSync.length) {
     return;
   }

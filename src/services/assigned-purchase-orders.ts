@@ -13,6 +13,7 @@ export type AssignedPurchaseOrder = {
   createdAt: string;
   requesterName: string;
   requesterAvatarUri: string | null;
+  cancellationReason: string | null;
   budgetTotalCents: number;
   invoicedTotalCents: number;
   items: AssignedPurchaseItem[];
@@ -23,3 +24,4 @@ export async function getAssignedPurchaseOrders(_userId: string): Promise<Assign
 }
 
 export async function setPurchaseItemPurchased(_orderId: string, _itemId: string, _isPurchased: boolean): Promise<void> {}
+export async function cancelPurchaseOrder(_orderId: string, _reason: string): Promise<void> {}

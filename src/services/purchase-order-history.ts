@@ -12,6 +12,7 @@ export type PurchaseHistoryOrder = {
   assigneeName: string;
   assigneeAvatarUri: string | null;
   status: string;
+  cancellationReason: string | null;
   budgetTotalCents: number;
   invoicedTotalCents: number;
   items: PurchaseHistoryItem[];

@@ -14,6 +14,7 @@ export type PurchaseHistoryOrder = {
   assigneeName: string;
   assigneeAvatarUri: string | null;
   status: string;
+  cancellationReason: string | null;
   budgetTotalCents: number;
   invoicedTotalCents: number;
   items: PurchaseHistoryItem[];
@@ -25,6 +26,7 @@ type HistoryRow = {
   assignee_name: string | null;
   assignee_avatar_uri: string | null;
   status: string;
+  notes: string | null;
   budget_total_cents: number;
   invoiced_total_cents: number;
   item_id: string;
@@ -52,6 +54,7 @@ async function getHistory(userId: string, type: 'requested' | 'assigned'): Promi
        counterpart.display_name AS assignee_name,
        counterpart_profile.avatar_uri AS assignee_avatar_uri,
        request.status,
+       request.notes,
        request.budget_total_cents,
        request.invoiced_total_cents,
        item.id AS item_id,
@@ -76,6 +79,7 @@ async function getHistory(userId: string, type: 'requested' | 'assigned'): Promi
       assigneeName: row.assignee_name ?? 'Sin asignar',
       assigneeAvatarUri: row.assignee_avatar_uri,
       status: row.status,
+      cancellationReason: row.notes,
       budgetTotalCents: Number(row.budget_total_cents),
       invoicedTotalCents: Number(row.invoiced_total_cents),
       items: [],

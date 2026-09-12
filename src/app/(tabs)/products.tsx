@@ -83,6 +83,7 @@ export default function ProductsScreen() {
   const [supplierPhone, setSupplierPhone] = useState('');
   const [categories, setCategories] = useState<ProductCategoryOption[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<ProductCategory | 'all'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [groupBySupplier, setGroupBySupplier] = useState(false);
   const [newImage, setNewImage] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [isSavingProduct, setIsSavingProduct] = useState(false);
@@ -199,9 +200,14 @@ export default function ProductsScreen() {
 
   const profileUser = user;
   const canManageCatalog = isProductAdmin(user);
+  const normalizedSearch = normalizeSearch(searchQuery);
   const visibleProducts = products.filter((product) =>
     (canManageCatalog || product.isAvailable)
     && (selectedCategory === 'all' || product.category === selectedCategory)
+    && (!normalizedSearch || normalizeSearch([
+      product.name,
+      suppliers.find((supplier) => supplier.id === product.supplierId)?.name ?? '',
+    ].join(' ')).includes(normalizedSearch))
   );
   const productsForDisplay = groupBySupplier
     ? [...visibleProducts].sort((first, second) => {
@@ -436,6 +442,21 @@ export default function ProductsScreen() {
         </View>
 
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} style={styles.productScroll}>
+          <View style={[styles.searchBar, { backgroundColor: theme.backgroundElement, borderColor: theme.backgroundSelected }]}>
+            <ThemedText style={[styles.searchIcon, { color: theme.textSecondary }]}>{symbolsLoaded ? 'search' : '⌕'}</ThemedText>
+            <TextInput
+              accessibilityLabel="Buscar productos o proveedores"
+              autoCapitalize="none"
+              autoCorrect={false}
+              onChangeText={setSearchQuery}
+              placeholder="Buscar producto o proveedor"
+              placeholderTextColor={theme.textSecondary}
+              returnKeyType="search"
+              style={[styles.searchInput, { color: theme.text }]}
+              value={searchQuery}
+            />
+            {searchQuery ? <Pressable accessibilityLabel="Limpiar búsqueda" onPress={() => setSearchQuery('')} style={styles.clearSearchButton}><ThemedText style={[styles.clearSearchIcon, { color: theme.textSecondary }]}>{symbolsLoaded ? 'close' : '×'}</ThemedText></Pressable> : null}
+          </View>
           <ScrollView horizontal contentContainerStyle={styles.categoryCarousel} showsHorizontalScrollIndicator={false} style={styles.categoryCarouselContainer}>
             <Pressable onPress={() => setSelectedCategory('all')} style={[styles.filterChip, { borderColor: theme.primary }, selectedCategory === 'all' && { backgroundColor: theme.primary }]}>
               <ThemedText style={[styles.filterChipText, selectedCategory === 'all' && styles.filterChipTextSelected]}>Todos</ThemedText>
@@ -714,6 +735,10 @@ function formatCategory(category: ProductCategory) {
   return category === 'carnicos' ? 'Cárnicos' : category.charAt(0).toUpperCase() + category.slice(1);
 }
 
+function normalizeSearch(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLocaleLowerCase('es');
+}
+
 function formatUnit(unitType: ProductUnitType) {
   return unitType === 'pound' ? 'Por libra' : 'Por unidad';
 }
@@ -746,6 +771,11 @@ const styles = StyleSheet.create({
   addCatalogButtonText: { color: '#FFFFFF', fontSize: 24, lineHeight: 26 },
   content: { alignSelf: 'center', flexGrow: 1, maxWidth: MaxContentWidth, padding: Spacing.three, paddingBottom: Spacing.four, width: '100%' },
   productScroll: { flex: 1 },
+  searchBar: { alignItems: 'center', borderRadius: 20, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', height: 40, marginBottom: Spacing.two, paddingHorizontal: Spacing.two, width: '100%' },
+  searchIcon: { fontFamily: 'MaterialSymbols', fontSize: 19, lineHeight: 21 },
+  searchInput: { flex: 1, fontSize: 13, height: '100%', paddingHorizontal: Spacing.one, paddingVertical: 0 },
+  clearSearchButton: { alignItems: 'center', borderRadius: 15, height: 30, justifyContent: 'center', width: 30 },
+  clearSearchIcon: { fontFamily: 'MaterialSymbols', fontSize: 18, lineHeight: 20, textAlign: 'center' },
   productGrid: { gap: Spacing.two },
   categoryCarouselContainer: { flexGrow: 0, flexShrink: 0, height: 42, marginBottom: Spacing.two },
   categoryCarousel: { alignItems: 'center', gap: Spacing.one, paddingHorizontal: 1 },

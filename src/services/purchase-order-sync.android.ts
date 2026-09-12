@@ -1,6 +1,6 @@
 import { getDatabase } from '@/database/database';
 import { createOrderCompletionNotification, syncOrderNotificationsToSupabase } from '@/services/order-notifications';
-import { notifyPurchaseOrderCompleted } from '@/services/push-notifications';
+import { notifyPurchaseOrderCancelled, notifyPurchaseOrderCompleted } from '@/services/push-notifications';
 import { notifyPurchaseSummaryChanged } from '@/services/purchase-summary';
 import { supabase } from '@/services/supabase';
 import { getDirectoryUsers } from '@/services/user-directory';
@@ -10,6 +10,7 @@ type OrderRow = {
   requester_id: string;
   assignee_id: string | null;
   status: string;
+  notes: string | null;
   budget_total_cents: number;
   invoiced_total_cents: number;
   created_at: string;
@@ -36,6 +37,7 @@ type RemoteOrder = {
   requester_id: string;
   assignee_id: string | null;
   status: string;
+  cancel_reason: string | null;
   budget_total_cents: number;
   invoiced_total_cents: number;
   created_at: string;
@@ -69,7 +71,7 @@ export async function syncPurchaseOrderToSupabase(orderId: string): Promise<void
 
   const database = await getDatabase();
   const order = await database.getFirstAsync<OrderRow>(
-    `SELECT id, requester_id, assignee_id, status, budget_total_cents,
+    `SELECT id, requester_id, assignee_id, status, notes, budget_total_cents,
             invoiced_total_cents, created_at, updated_at
      FROM purchase_requests WHERE id = ?`,
     orderId,
@@ -110,6 +112,11 @@ export async function syncPurchaseOrderToSupabase(orderId: string): Promise<void
         console.warn('No se pudo enviar la notificación de pedido completado.', error);
       }
     }
+    if (order.status === 'cancelled') {
+      await notifyPurchaseOrderCancelled(orderId).catch((error) => {
+        console.warn('No se pudo enviar la notificación de pedido cancelado.', error);
+      });
+    }
     return;
   }
 
@@ -120,6 +127,7 @@ export async function syncPurchaseOrderToSupabase(orderId: string): Promise<void
       requester_id: order.requester_id,
       assignee_id: order.assignee_id,
       status: order.status,
+      cancel_reason: order.notes,
       budget_total_cents: order.budget_total_cents,
       invoiced_total_cents: order.invoiced_total_cents,
       created_at: order.created_at,
@@ -168,6 +176,11 @@ export async function syncPurchaseOrderToSupabase(orderId: string): Promise<void
       console.warn('No se pudo enviar la notificación de pedido completado.', error);
     }
   }
+  if (order.status === 'cancelled') {
+    await notifyPurchaseOrderCancelled(orderId).catch((error) => {
+      console.warn('No se pudo enviar la notificación de pedido cancelado.', error);
+    });
+  }
 }
 
 async function updateExistingPurchaseOrder(order: OrderRow, items: ItemRow[]): Promise<void> {
@@ -180,6 +193,7 @@ async function updateExistingPurchaseOrder(order: OrderRow, items: ItemRow[]): P
     .from('purchase_orders')
     .update({
       status: order.status,
+      cancel_reason: order.notes,
       budget_total_cents: order.budget_total_cents,
       invoiced_total_cents: order.invoiced_total_cents,
       updated_at: order.updated_at,
@@ -244,7 +258,7 @@ export async function syncPurchaseOrdersFromSupabase(userId: string): Promise<vo
   await getDirectoryUsers();
   const { data: remoteOrders, error: ordersError } = await supabase
     .from('purchase_orders')
-    .select('id, requester_id, assignee_id, status, budget_total_cents, invoiced_total_cents, created_at, updated_at')
+    .select('id, requester_id, assignee_id, status, cancel_reason, budget_total_cents, invoiced_total_cents, created_at, updated_at')
     .or(`requester_id.eq.${userId},assignee_id.eq.${userId}`)
     .order('created_at', { ascending: false });
   if (ordersError) {
@@ -330,12 +344,13 @@ export async function syncPurchaseOrdersFromSupabase(userId: string): Promise<vo
         `INSERT INTO purchase_requests (
           id, family_id, requester_id, assignee_id, status, notes, budget_total_cents,
           invoiced_total_cents, created_at, updated_at, delivered_at
-        ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, NULL)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
         ON CONFLICT(id) DO UPDATE SET
           assignee_id = excluded.assignee_id, status = excluded.status,
+          notes = excluded.notes,
           budget_total_cents = excluded.budget_total_cents,
           invoiced_total_cents = excluded.invoiced_total_cents, updated_at = excluded.updated_at`,
-        order.id, familyId, order.requester_id, order.assignee_id, order.status,
+        order.id, familyId, order.requester_id, order.assignee_id, order.status, order.cancel_reason,
         order.budget_total_cents, order.invoiced_total_cents, order.created_at, order.updated_at,
       );
       for (const item of itemsByOrder.get(order.id) ?? []) {

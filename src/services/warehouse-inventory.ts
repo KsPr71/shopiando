@@ -82,6 +82,8 @@ type WarehouseItemMovementRow = {
   created_at: string;
 };
 
+const inventoryListeners = new Set<() => void>();
+
 export function isWarehouseAdmin(user: User): boolean {
   return user.app_metadata.role === 'admin';
 }
@@ -220,6 +222,7 @@ export async function deleteWarehouseItem(itemId: string): Promise<void> {
     throw new Error(error.message);
   }
   await removeCachedWarehouseItem(itemId);
+  notifyWarehouseInventoryChanged();
 }
 
 export async function getWarehouseItemMovements(itemId: string): Promise<WarehouseItemMovement[]> {
@@ -250,9 +253,10 @@ export async function getWarehouseItemMovements(itemId: string): Promise<Warehou
 }
 
 export function subscribeToWarehouseInventory(onChange: () => void, onStatus: (status: 'connecting' | 'live' | 'offline') => void): () => void {
+  inventoryListeners.add(onChange);
   if (!supabase) {
     onStatus('offline');
-    return () => {};
+    return () => { inventoryListeners.delete(onChange); };
   }
   const client = supabase;
   onStatus('connecting');
@@ -261,7 +265,7 @@ export function subscribeToWarehouseInventory(onChange: () => void, onStatus: (s
     .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_items' }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouses' }, onChange)
     .subscribe((status) => onStatus(status === 'SUBSCRIBED' ? 'live' : status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' ? 'offline' : 'connecting'));
-  return () => { void client.removeChannel(channel); };
+  return () => { inventoryListeners.delete(onChange); void client.removeChannel(channel); };
 }
 
 async function refreshWarehouseItem(row: WarehouseItemRow): Promise<WarehouseItem> {
@@ -271,7 +275,12 @@ async function refreshWarehouseItem(row: WarehouseItemRow): Promise<WarehouseIte
     throw new Error('Supabase no confirmó el cambio del artículo.');
   }
   await upsertCachedWarehouseItem(item);
+  notifyWarehouseInventoryChanged();
   return item;
+}
+
+function notifyWarehouseInventoryChanged(): void {
+  inventoryListeners.forEach((listener) => listener());
 }
 
 async function uploadImage(client: NonNullable<typeof supabase>, userId: string, image: ImagePicker.ImagePickerAsset | null): Promise<string | null> {

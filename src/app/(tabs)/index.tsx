@@ -10,6 +10,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  TextInput,
   View,
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -23,10 +24,12 @@ import { MaxContentWidth, Spacing } from "@/constants/theme";
 import { useAuth } from "@/contexts/auth-context";
 import { useTheme } from "@/hooks/use-theme";
 import {
+  cancelPurchaseOrder,
   getAssignedPurchaseOrders,
   setPurchaseItemPurchased,
   type AssignedPurchaseOrder,
 } from "@/services/assigned-purchase-orders";
+import { getSupplierImage, useSupplierImages } from '@/hooks/use-supplier-images';
 import { playNotificationSound } from "@/services/notification-sound";
 import {
   clearReadOrderNotifications,
@@ -60,6 +63,7 @@ export default function HomeScreen() {
   const { isReady, user, signOut } = useAuth();
   const router = useRouter();
   const theme = useTheme();
+  const supplierImages = useSupplierImages(Boolean(user));
   const [isMenuVisible, setIsMenuVisible] = useState(false);
   const [localProfile, setLocalProfile] = useState<LocalProfile | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
@@ -70,6 +74,9 @@ export default function HomeScreen() {
     {},
   );
   const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
+  const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null);
+  const [cancelReasons, setCancelReasons] = useState<Record<string, string>>({});
+  const [confirmingCancellationId, setConfirmingCancellationId] = useState<string | null>(null);
   const [purchasedFeedbackItemIds, setPurchasedFeedbackItemIds] = useState<
     Record<string, boolean>
   >({});
@@ -435,6 +442,22 @@ export default function HomeScreen() {
       void getAssignedPurchaseOrders(user.id)
         .then(setAssignedOrders)
         .catch(() => {});
+    }
+  }
+
+  async function confirmCancellation(order: AssignedPurchaseOrder) {
+    const reason = cancelReasons[order.id]?.trim() ?? '';
+    if (reason.length < 3) {
+      return;
+    }
+    setConfirmingCancellationId(order.id);
+    try {
+      await cancelPurchaseOrder(order.id, reason);
+      setAssignedOrders((current) => current.filter((candidate) => candidate.id !== order.id));
+      setCancellingOrderId(null);
+      setCancelReasons((current) => ({ ...current, [order.id]: '' }));
+    } finally {
+      setConfirmingCancellationId(null);
     }
   }
 
@@ -823,6 +846,9 @@ export default function HomeScreen() {
                                     {item.isPurchased ? "✓" : ""}
                                   </ThemedText>
                                 </View>
+                                {getSupplierImage(supplierImages, item.supplierName) ? (
+                                  <Image source={{ uri: getSupplierImage(supplierImages, item.supplierName) ?? undefined }} style={styles.orderSupplierImage} />
+                                ) : null}
                                 <View style={styles.orderItemInfo}>
                                   <ThemedText
                                     style={[
@@ -866,6 +892,31 @@ export default function HomeScreen() {
                                 </ThemedText>
                               </Pressable>
                             ))}
+                            <View style={[styles.cancelSection, { borderTopColor: theme.backgroundSelected }]}>
+                              <Pressable
+                                accessibilityRole="checkbox"
+                                accessibilityState={{ checked: cancellingOrderId === order.id }}
+                                onPress={() => setCancellingOrderId((current) => current === order.id ? null : order.id)}
+                                style={styles.cancelToggle}
+                              >
+                                <View style={[styles.cancelCheckbox, { borderColor: cancellingOrderId === order.id ? theme.info : theme.textSecondary, backgroundColor: cancellingOrderId === order.id ? theme.info : 'transparent' }]}>
+                                  <ThemedText style={styles.checkboxIcon}>{cancellingOrderId === order.id ? '✓' : ''}</ThemedText>
+                                </View>
+                                <ThemedText style={[styles.cancelLabel, { color: theme.info }]}>Cancelado</ThemedText>
+                              </Pressable>
+                              {cancellingOrderId === order.id ? <View style={styles.cancelForm}>
+                                <TextInput
+                                  value={cancelReasons[order.id] ?? ''}
+                                  onChangeText={(value) => setCancelReasons((current) => ({ ...current, [order.id]: value }))}
+                                  placeholder="Motivo de la cancelación"
+                                  placeholderTextColor={theme.textSecondary}
+                                  style={[styles.cancelInput, { borderColor: theme.backgroundSelected, color: theme.text }]}
+                                />
+                                <Pressable disabled={confirmingCancellationId === order.id || (cancelReasons[order.id]?.trim().length ?? 0) < 3} onPress={() => void confirmCancellation(order)} style={[styles.cancelConfirm, { backgroundColor: theme.info }, (confirmingCancellationId === order.id || (cancelReasons[order.id]?.trim().length ?? 0) < 3) && styles.cancelConfirmDisabled]}>
+                                  <ThemedText style={styles.cancelConfirmText}>Confirmar</ThemedText>
+                                </Pressable>
+                              </View> : null}
+                            </View>
                           </View>
                         ) : null}
                       </ThemedView>
@@ -1353,6 +1404,16 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   orderItemInfo: { flex: 1, minWidth: 0 },
+  orderSupplierImage: { borderRadius: 6, height: 32, width: 32 },
+  cancelSection: { borderTopWidth: StyleSheet.hairlineWidth, marginTop: Spacing.one, paddingTop: Spacing.two },
+  cancelToggle: { alignItems: 'center', alignSelf: 'flex-start', flexDirection: 'row', gap: Spacing.one, minHeight: 32 },
+  cancelCheckbox: { alignItems: 'center', borderRadius: 4, borderWidth: 1.5, height: 19, justifyContent: 'center', width: 19 },
+  cancelLabel: { fontSize: 12, fontWeight: '700' },
+  cancelForm: { alignItems: 'center', flexDirection: 'row', gap: Spacing.one, marginTop: Spacing.one },
+  cancelInput: { backgroundColor: '#FFFFFF', borderRadius: Spacing.one, borderWidth: 1, flex: 1, fontSize: 12, minHeight: 38, paddingHorizontal: Spacing.two },
+  cancelConfirm: { alignItems: 'center', borderRadius: Spacing.one, justifyContent: 'center', minHeight: 34, paddingHorizontal: Spacing.two },
+  cancelConfirmDisabled: { opacity: 0.45 },
+  cancelConfirmText: { color: '#FFFFFF', fontSize: 11, fontWeight: '800' },
   orderItemName: { fontSize: 13, fontWeight: "700" },
   orderItemSupplier: { fontSize: 11, marginTop: 1 },
   purchasedItem: { textDecorationLine: "line-through" },

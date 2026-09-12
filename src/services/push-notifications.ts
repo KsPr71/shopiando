@@ -19,6 +19,10 @@ export async function notifyPurchaseOrderCompleted(_orderId: string): Promise<{ 
   return { delivered: 0, recipientsWithoutToken: 0 };
 }
 
+export async function notifyPurchaseOrderCancelled(_orderId: string): Promise<{ delivered: number; recipientsWithoutToken: number }> {
+  return { delivered: 0, recipientsWithoutToken: 0 };
+}
+
 export async function getPushNotificationDebugInfo(_userId: string): Promise<PushNotificationDebugInfo> {
   return {
     environment: 'No compatible',

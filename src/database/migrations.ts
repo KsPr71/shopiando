@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-const DATABASE_VERSION = 15;
+const DATABASE_VERSION = 17;
 
 /** Creates the local, offline-first data store. Monetary values are integer cents. */
 export async function migrateDatabase(database: SQLiteDatabase): Promise<void> {
@@ -303,6 +303,32 @@ export async function migrateDatabase(database: SQLiteDatabase): Promise<void> {
       );
     `);
     version = 15;
+  }
+
+  if (version === 15) {
+    await database.execAsync(`
+      CREATE TABLE IF NOT EXISTS supplier_cache (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        address TEXT NOT NULL,
+        phone TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        image_path TEXT,
+        image_url TEXT,
+        updated_at TEXT NOT NULL,
+        synced_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS supplier_cache_by_name ON supplier_cache(name);
+    `);
+    version = 16;
+  }
+
+  if (version === 16) {
+    const columns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(purchase_requests)');
+    if (!columns.some((column) => column.name === 'notes')) {
+      await database.execAsync('ALTER TABLE purchase_requests ADD COLUMN notes TEXT');
+    }
+    version = 17;
   }
 
   await database.execAsync(`PRAGMA user_version = ${version}`);
