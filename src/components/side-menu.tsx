@@ -6,8 +6,10 @@ import {
   Animated,
   Easing,
   Image,
+  type ImageSourcePropType,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   useWindowDimensions,
   View,
@@ -42,6 +44,8 @@ export function SideMenu({ visible, userEmail, onClose, onSignOut }: SideMenuPro
   const [localProfile, setLocalProfile] = useState<LocalProfile | null>(null);
   const [directoryName, setDirectoryName] = useState<string | null>(null);
   const [failedAvatarUri, setFailedAvatarUri] = useState<string | null>(null);
+  const [isAboutVisible, setIsAboutVisible] = useState(false);
+  const isAboutVisibleRef = useRef(false);
   const [symbolsLoaded] = useFonts({ MaterialSymbols: MaterialSymbols_400Regular });
   const closeGesture = Gesture.Pan()
     .activeOffsetX([-10, 10])
@@ -68,7 +72,7 @@ export function SideMenu({ visible, userEmail, onClose, onSignOut }: SideMenuPro
       frameId = requestAnimationFrame(() => animation.start());
     } else if (isMounted) {
       animation.start(({ finished }) => {
-        if (finished) {
+        if (finished && !isAboutVisibleRef.current) {
           setIsMounted(false);
         }
       });
@@ -125,6 +129,20 @@ export function SideMenu({ visible, userEmail, onClose, onSignOut }: SideMenuPro
     await onSignOut();
   }
 
+  function openAbout() {
+    isAboutVisibleRef.current = true;
+    setIsAboutVisible(true);
+    onClose();
+  }
+
+  function closeAbout() {
+    isAboutVisibleRef.current = false;
+    setIsAboutVisible(false);
+    if (!visible) {
+      setIsMounted(false);
+    }
+  }
+
   if (!isMounted) {
     return null;
   }
@@ -145,7 +163,7 @@ export function SideMenu({ visible, userEmail, onClose, onSignOut }: SideMenuPro
   const appVersion = Constants.expoConfig?.version ?? '1.0.0';
 
   return (
-    <Modal transparent visible animationType="none" onRequestClose={onClose}>
+    <Modal transparent visible animationType="none" onRequestClose={isAboutVisible ? closeAbout : onClose}>
       <GestureHandlerRootView style={styles.modal}>
         <Pressable
           accessibilityLabel="Cerrar menú"
@@ -197,7 +215,7 @@ export function SideMenu({ visible, userEmail, onClose, onSignOut }: SideMenuPro
                 </View>
               </View>
 
-              <View style={styles.navigation}>
+              <ScrollView contentContainerStyle={styles.navigation} showsVerticalScrollIndicator={false} style={styles.navigationScroll}>
                 <MenuItem
                   active={pathname === '/' || pathname === '/index'}
                   icon="home"
@@ -247,7 +265,14 @@ export function SideMenu({ visible, userEmail, onClose, onSignOut }: SideMenuPro
                   onPress={() => navigate('/settings')}
                   symbolsLoaded={symbolsLoaded}
                 />
-              </View>
+                <MenuItem
+                  active={false}
+                  icon="info"
+                  label="Acerca de"
+                  onPress={openAbout}
+                  symbolsLoaded={symbolsLoaded}
+                />
+              </ScrollView>
 
               <View style={[styles.appSignature, { borderTopColor: theme.backgroundSelected }]}>
                 <Image source={require('@/assets/images/icon.png')} style={styles.appLogo} />
@@ -260,6 +285,31 @@ export function SideMenu({ visible, userEmail, onClose, onSignOut }: SideMenuPro
             </SafeAreaView>
           </Animated.View>
         </GestureDetector>
+        {isAboutVisible ? (
+          <View style={styles.aboutOverlay}>
+            <Pressable accessibilityLabel="Cerrar Acerca de" onPress={closeAbout} style={StyleSheet.absoluteFill} />
+            <View style={[styles.aboutCard, { backgroundColor: theme.background }]}>
+              <Pressable accessibilityLabel="Cerrar Acerca de" onPress={closeAbout} style={[styles.aboutCloseButton, { backgroundColor: theme.backgroundSelected }]}>
+                <ThemedText style={styles.aboutCloseIcon}>×</ThemedText>
+              </Pressable>
+              <Image source={require('@/assets/images/icon.png')} style={styles.aboutLogo} />
+              <ThemedText style={styles.aboutAppName}>Shopiando</ThemedText>
+              <ThemedText themeColor="textSecondary" style={styles.aboutVersion}>Versión {appVersion}</ThemedText>
+              <View style={styles.aboutSection}>
+                <ThemedText style={styles.aboutSectionTitle}>Desarrollada por</ThemedText>
+                <ThemedText themeColor="textSecondary" style={styles.aboutText}>Jorge A. Casares Delgado</ThemedText>
+                <ThemedText themeColor="textSecondary" style={styles.aboutText}>Jeidy Noda González</ThemedText>
+              </View>
+              <View style={styles.aboutSection}>
+                <ThemedText style={styles.aboutSectionTitle}>Tecnologías</ThemedText>
+                <TechnologyRow imageSource={require('@/assets/images/react-logo.png')} label="React Native · TypeScript" />
+                <TechnologyRow imageSource={require('@/assets/images/expo-logo.png')} label="Expo SDK 57 · Expo Router · EAS Build" />
+                <TechnologyRow icon="database" label="Supabase · PostgreSQL · SQLite" symbolsLoaded={symbolsLoaded} />
+                <TechnologyRow icon="notifications" label="Firebase Cloud Messaging" symbolsLoaded={symbolsLoaded} />
+              </View>
+            </View>
+          </View>
+        ) : null}
       </GestureHandlerRootView>
     </Modal>
   );
@@ -281,6 +331,28 @@ function MenuItem({ active, icon, label, onPress, symbolsLoaded }: {
         <ThemedText style={[styles.menuItemText, { color: active ? theme.primary : theme.textSecondary }]}>{label}</ThemedText>
       </View>
     </Pressable>
+  );
+}
+
+function TechnologyRow({ icon, imageSource, label, symbolsLoaded = false }: {
+  icon?: string;
+  imageSource?: ImageSourcePropType;
+  label: string;
+  symbolsLoaded?: boolean;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View style={styles.technologyRow}>
+      {imageSource ? (
+        <Image resizeMode="contain" source={imageSource} style={styles.technologyLogo} />
+      ) : (
+        <ThemedText style={[styles.technologyIcon, { color: theme.primary }]}>
+          {symbolsLoaded ? icon : '•'}
+        </ThemedText>
+      )}
+      <ThemedText themeColor="textSecondary" style={styles.technologyText}>{label}</ThemedText>
+    </View>
   );
 }
 
@@ -366,8 +438,13 @@ const styles = StyleSheet.create({
     opacity: 0.84,
   },
   navigation: {
+    flexGrow: 1,
     gap: Spacing.two,
     padding: Spacing.three,
+    paddingBottom: Spacing.one,
+  },
+  navigationScroll: {
+    flex: 1,
   },
   menuItemPressable: {
     borderRadius: Spacing.two,
@@ -433,4 +510,51 @@ const styles = StyleSheet.create({
     fontSize: 21,
     lineHeight: 24,
   },
+  aboutOverlay: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.48)',
+    bottom: 0,
+    justifyContent: 'center',
+    left: 0,
+    padding: Spacing.three,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    zIndex: 10,
+  },
+  aboutCard: {
+    alignItems: 'center',
+    borderRadius: Spacing.four,
+    boxShadow: '0px 8px 24px rgba(0, 0, 0, 0.22)',
+    maxWidth: 360,
+    padding: Spacing.four,
+    width: '100%',
+  },
+  aboutCloseButton: {
+    alignItems: 'center',
+    borderRadius: 17,
+    height: 34,
+    justifyContent: 'center',
+    position: 'absolute',
+    right: Spacing.two,
+    top: Spacing.two,
+    width: 34,
+  },
+  aboutCloseIcon: { fontSize: 24, lineHeight: 27 },
+  aboutLogo: { borderRadius: 22, height: 88, width: 88 },
+  aboutAppName: { fontSize: 24, fontWeight: '800', marginTop: Spacing.two },
+  aboutVersion: { fontSize: 12, marginTop: 2 },
+  aboutSection: { alignItems: 'center', marginTop: Spacing.three, width: '100%' },
+  aboutSectionTitle: { fontSize: 14, fontWeight: '800', marginBottom: Spacing.one },
+  aboutText: { fontSize: 13, lineHeight: 20, textAlign: 'center' },
+  technologyRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: Spacing.two,
+    minHeight: 34,
+    width: '100%',
+  },
+  technologyLogo: { height: 22, width: 22 },
+  technologyIcon: { fontFamily: 'MaterialSymbols', fontSize: 22, lineHeight: 24 },
+  technologyText: { flex: 1, fontSize: 12, lineHeight: 17 },
 });

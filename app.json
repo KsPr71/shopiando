@@ -2,7 +2,7 @@
   "expo": {
     "name": "Shopiando",
     "slug": "shopiando",
-    "version": "1.0.0",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "shopiando",
@@ -51,9 +51,7 @@
           "defaultChannel": "default",
           "icon": "./assets/images/notification-icon.png",
           "color": "#22A06B",
-          "sounds": [
-            "./assets/images/notification.wav"
-          ]
+          "sounds": ["./assets/images/notification.wav"]
         }
       ],
       "expo-asset"
