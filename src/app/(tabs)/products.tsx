@@ -3,10 +3,11 @@ import { useFonts } from 'expo-font';
 import { MaterialSymbols_400Regular } from '@expo-google-fonts/material-symbols';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -92,6 +93,7 @@ export default function ProductsScreen() {
   const [catalogSyncStatus, setCatalogSyncStatus] = useState<'connecting' | 'live' | 'offline'>('connecting');
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const checkoutBarProgress = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (!user) {
@@ -189,6 +191,30 @@ export default function ProductsScreen() {
   );
   const totalCents = orderLines.reduce((total, line) => total + line.priceCents * line.quantity, 0);
   const cartCount = orderLines.reduce((total, line) => total + line.quantity, 0);
+
+  useEffect(() => {
+    if (!cartCount) {
+      checkoutBarProgress.setValue(0);
+      return;
+    }
+
+    Animated.spring(checkoutBarProgress, {
+      damping: 18,
+      mass: 0.75,
+      stiffness: 190,
+      toValue: 1,
+      useNativeDriver: true,
+    }).start();
+  }, [cartCount, checkoutBarProgress]);
+
+  useEffect(() => {
+    if (message !== 'Producto añadido al catálogo.') {
+      return;
+    }
+
+    const timeout = setTimeout(() => setMessage(null), 3000);
+    return () => clearTimeout(timeout);
+  }, [message]);
 
   if (!isReady) {
     return <ThemedView style={styles.centered}><ActivityIndicator /></ThemedView>;
@@ -552,19 +578,30 @@ export default function ProductsScreen() {
           {message ? <ThemedText style={[styles.feedback, { color: theme.success }]}>{message}</ThemedText> : null}
         </ScrollView>
 
-        <View style={[styles.checkoutBar, { backgroundColor: theme.backgroundElement, borderTopColor: theme.backgroundSelected }]}>
-          <View>
-            <ThemedText themeColor="textSecondary" style={styles.checkoutLabel}>{cartCount} productos en el pedido</ThemedText>
-            <ThemedText style={styles.checkoutTotal}>{formatPrice(totalCents)}</ThemedText>
-          </View>
-          <Pressable
-            accessibilityRole="button"
-            disabled={!orderLines.length}
-            onPress={requestCheckout}
-            style={({ pressed }) => [styles.checkoutButton, { backgroundColor: theme.primary }, !orderLines.length && styles.disabled, pressed && styles.pressed]}>
-            <ThemedText style={styles.checkoutButtonText}>Finalizar pedido</ThemedText>
-          </Pressable>
-        </View>
+        {cartCount > 0 ? (
+          <Animated.View
+            style={[
+              styles.checkoutBar,
+              { backgroundColor: theme.backgroundElement, borderTopColor: theme.backgroundSelected },
+              {
+                opacity: checkoutBarProgress,
+                transform: [{
+                  translateY: checkoutBarProgress.interpolate({ inputRange: [0, 1], outputRange: [72, 0] }),
+                }],
+              },
+            ]}>
+            <View>
+              <ThemedText themeColor="textSecondary" style={styles.checkoutLabel}>{cartCount} productos en el pedido</ThemedText>
+              <ThemedText style={styles.checkoutTotal}>{formatPrice(totalCents)}</ThemedText>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              onPress={requestCheckout}
+              style={({ pressed }) => [styles.checkoutButton, { backgroundColor: theme.primary }, pressed && styles.pressed]}>
+              <ThemedText style={styles.checkoutButtonText}>Finalizar pedido</ThemedText>
+            </Pressable>
+          </Animated.View>
+        ) : null}
       </SafeAreaView>
 
       <SideMenu onClose={() => setIsMenuVisible(false)} onSignOut={signOut} userEmail={profileUser.email} visible={isMenuVisible} />
